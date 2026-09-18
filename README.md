@@ -5,14 +5,12 @@ everything in one SQLite file, and talks to nothing.
 
 [![Download for macOS](https://img.shields.io/badge/Download-Planner%20for%20macOS-0b7285?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.zip)
 
-Unzip it and drag **Planner** to Applications. The repository is private, so the
-button needs you signed in to GitHub. From a terminal, use the GitHub CLI, which
-carries that sign-in for you:
+Unzip it and drag **Planner** to Applications. Or install it in one line:
 
 ```bash
-gh release download --repo sambra95/planner \
-  --pattern 'Planner-macos-arm64.zip' --dir /tmp --clobber
-ditto -x -k /tmp/Planner-macos-arm64.zip ~/Applications
+curl -L https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.zip \
+  -o /tmp/Planner.zip
+ditto -x -k /tmp/Planner.zip ~/Applications && rm /tmp/Planner.zip
 ```
 
 The app carries its own Python, so nothing else needs installing. It opens in
@@ -80,13 +78,8 @@ packaged Streamlit app never touches and strips debug symbols, taking the app
 from 352 MB to 211 MB. Signing comes last on purpose: stripping removes a
 signature, and arm64 macOS kills unsigned code rather than loading it.
 
-`dist/` is ignored, so releasing is how a build gets out. Publish one and the
-link above picks it up:
-
-```bash
-gh release create v1.0.0 dist/Planner-macos-arm64.zip --title "Planner 1.0.0" --notes "..."
-gh release upload v1.0.0 dist/Planner-macos-arm64.zip --clobber   # replacing a build
-```
+`dist/` is git-ignored, so a release is how a build gets out. Draft one on
+GitHub and drag the archive in, and the link at the top picks it up.
 
 ## Changing things
 
