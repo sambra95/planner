@@ -3,7 +3,7 @@
 A personal task list, work diary and weekly review. Runs on your Mac, keeps
 everything in one SQLite file, and talks to nothing.
 
-[![Download for macOS](https://img.shields.io/badge/Download-Planner%20for%20macOS-0b7285?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.dmg)
+[![Download Planner for macOS](https://img.shields.io/github/v/release/sambra95/planner?display_name=tag&style=for-the-badge&logo=apple&logoColor=white&label=Download%20for%20macOS&color=0b7285)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.dmg)
 
 Open it. A window appears with **Planner** beside the Applications folder:
 drag one onto the other. That is the whole install.
