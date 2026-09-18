@@ -1,0 +1,18 @@
+# Calm, low-contrast light theme: one muted indigo accent, everything else neutral.
+[theme]
+base = "light"
+primaryColor = "#4F5D95"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7F9"
+codeBackgroundColor = "#F2F3F5"
+textColor = "#1F2430"
+linkColor = "#4F5D95"
+borderColor = "#E5E7EB"
+showWidgetBorder = true
+baseRadius = "8px"
+buttonRadius = "8px"
+font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+baseFontSize = 14
+headingFontSizes = ["30px", "22px", "18px", "16px", "14px", "13px"]
+headingFontWeights = [600, 600, 600, 500, 500, 500]
+linkUnderline = false
