@@ -76,11 +76,10 @@ echo "    $(grep -cE '^[a-zA-Z0-9_.-]+==' "$BUILD/requirements.txt") pinned pack
 step "[4/7] Copying the app"
 cp streamlit_app.py bootstrap.py db.py daycard.py palette.py worktime.py "$RESOURCES/"
 cp -R app_pages "$RESOURCES/app_pages"
+cp -R assets "$RESOURCES/assets"
 cp -R .streamlit "$RESOURCES/.streamlit"
 cp README.md "$RESOURCES/README.md"
 find "$RESOURCES" -name '__pycache__' -type d -prune -exec rm -rf {} +
-# printf, not echo: bash's echo leaves a literal \n and the TOML is then invalid.
-printf '\n[client]\ntoolbarMode = "viewer"\n' >> "$RESOURCES/.streamlit/config.toml"
 
 step "[5/7] Trimming"
 # What a packaged Streamlit app never touches. What is absent here is equally

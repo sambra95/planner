@@ -1,14 +1,19 @@
 """Planner - a personal task list, work diary and weekly review."""
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import streamlit as st
 
 import db
-from palette import NAV_CSS, SECTION_CSS
+from palette import INPUT_CSS, NAV_CSS, SECTION_CSS
 
-st.set_page_config(page_title="Planner", page_icon=":material/event_note:",
+#: Beside this file, not the working directory: the packaged app starts elsewhere.
+ASSETS = Path(__file__).resolve().parent / "assets"
+
+st.set_page_config(page_title="Planner", page_icon=str(ASSETS / "logo.png"),
                    layout="wide")
+st.logo(str(ASSETS / "logo.svg"), size="large")
 
 page = st.navigation([
     st.Page("app_pages/week.py", title="My Week",
@@ -25,6 +30,7 @@ page = st.navigation([
 db.close_past_days()
 
 st.html(SECTION_CSS)
+st.html(INPUT_CSS)
 st.html(NAV_CSS)
 
 # The end-of-week nudge: this week once Friday comes, last week before that.

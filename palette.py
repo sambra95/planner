@@ -12,24 +12,24 @@ import re
 
 import pandas as pd
 
-#: Distinct hues, legible on a light or dark theme.
+#: Distinct hues, muted to sit against the warm background.
 PALETTE = [
-    "#3B82F6",  # blue        #14B8A6 teal onwards are the extras that take
-    "#22C55E",  # green       a project list past the seven named colours
-    "#F59E0B",  # orange
-    "#EF4444",  # red
-    "#8B5CF6",  # violet
-    "#EAB308",  # yellow
-    "#71717A",  # gray
-    "#14B8A6",  # teal
-    "#EC4899",  # pink
-    "#0EA5E9",  # sky
-    "#84CC16",  # lime
-    "#A855F7",  # purple
-    "#F97316",  # deep orange
-    "#06B6D4",  # cyan
-    "#E11D48",  # rose
-    "#64748B",  # slate
+    "#4E86E3",  # blue        #14B8A6 teal onwards are the extras that take
+    "#32B562",  # green       a project list past the seven named colours
+    "#DE9822",  # orange
+    "#DE5555",  # red
+    "#916BE7",  # violet
+    "#D3A71F",  # yellow
+    "#727279",  # gray
+    "#24A899",  # teal
+    "#DC5899",  # pink
+    "#249DD3",  # sky
+    "#80BA28",  # lime
+    "#A865E7",  # purple
+    "#E2772D",  # deep orange
+    "#1BA7BF",  # cyan
+    "#CD3153",  # rose
+    "#687587",  # slate
 ]
 
 #: Named colours that may still be stored, and their hex.
@@ -41,30 +41,47 @@ DEFAULT_COLOUR = PALETTE[0]
 
 #: What an archived project turns. Not in PALETTE, so archiving frees a colour
 #: rather than spending one.
-ARCHIVED_COLOUR = "#9CA3AF"
+ARCHIVED_COLOUR = "#AEA185"
 
 #: What a project selector shows for no project.
 NO_PROJECT = "-"
 
-#: How much colour washes into a card, and into a chip.
-TINT_ALPHA = 0.07
-CHIP_ALPHA = 0.16
+#: How much colour washes into a card, a chip or a badge.
+WASH_ALPHA = 0.16
 
-#: Outline of a bordered section, and the heavier left edge of a project's card.
+#: Outline of a bordered section.
 BORDER_WIDTH = "2px"
-ACCENT_WIDTH = "5px"
 
 #: Only bordered containers have a border style, so this shows on those alone.
 SECTION_CSS = (f'<style>[data-testid="stVerticalBlock"] '
                f'{{ border-width: {BORDER_WIDTH}; }}</style>')
 
+#: What an input is filled with. Buttons are white whatever the theme, and
+#: `secondaryBackgroundColor` covers widgets and containers alike, so an input
+#: cannot be lightened from config without also lightening every card.
+INPUT_FILL = "#FFFFFF"
+
+INPUT_CSS = f"""<style>
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextAreaRootElement"],
+[data-testid="stNumberInputContainer"],
+[data-testid="stDateInputField"],
+[data-testid="stTimeInputTimeDisplay"],
+[data-testid="stSelectbox"] > div,
+/* the select paints two nested divs, not one */
+[data-testid="stSelectbox"] > div > div {{ background-color: {INPUT_FILL}; }}
+</style>"""
+
 #: Tabs spread the width of the bar, each an equal share. The chain below
 #: `rc-overflow` has to be widened too, or the link hugs its text.
 #: Mirrors `borderColor` in .streamlit/config.toml, which CSS cannot read.
-BORDER_COLOUR = "#B9C0CB"
+BORDER_COLOUR = "#C8BFAA"
 
 #: Bar height; has to clear the tabs inside it.
 NAV_HEIGHT = "72px"
+
+#: Between tabs, so neighbouring highlights do not run together.
+NAV_GAP = "10px"
 
 NAV_CSS = f"""<style>
 .stAppHeader {{
@@ -75,8 +92,11 @@ NAV_CSS = f"""<style>
     border-bottom: 1px solid {BORDER_COLOUR} !important;
     box-shadow: 0 2px 6px rgba(31, 36, 48, 0.06) !important;
 }}
-.stAppHeader .rc-overflow {{ width: 100%; }}
+.stAppHeader .rc-overflow {{ width: 100%; gap: {NAV_GAP}; }}
 .stAppHeader .rc-overflow-item {{ flex: 1 1 0; min-width: 0; }}
+/* Streamlit keeps 175px here for the Deploy button, which is hidden; without
+   this the tabs stop short of the right edge and sit off centre. */
+.stAppHeader div:has(> [data-testid="stToolbarActions"]) {{ min-width: auto; }}
 .stAppHeader .rc-overflow-item > div,
 .stAppHeader [data-testid="stTopNavLinkContainer"] {{ width: 100%; }}
 .stAppHeader [data-testid="stTopNavLink"] {{
@@ -85,6 +105,10 @@ NAV_CSS = f"""<style>
     padding: 14px 4px !important;
 }}
 .stAppHeader [data-testid="stTopNavLink"] span {{ font-size: 1.2rem !important; }}
+/* Clicking the logo goes to the home page by default and no parameter turns
+   that off. Away from the home page Streamlit wraps it in a button; the image
+   itself is never the target. */
+[data-testid="stLogoLink"] {{ pointer-events: none; }}
 </style>"""
 
 #: Golden angle: successive hues land as far apart as possible.
@@ -134,17 +158,24 @@ def badge(name, colour) -> str:
         return ""
     tint = as_hex(colour)
     return (f':color[{name}]{{foreground="{tint}" '
-            f'background="{_rgba(tint, CHIP_ALPHA)}"}}')
+            f'background="{_rgba(tint, WASH_ALPHA)}"}}')
+
+
+def wash(colour) -> str:
+    """A project colour at the wash alpha, for anything coloured directly rather
+    than through a stylesheet."""
+    return _rgba(as_hex(colour), WASH_ALPHA)
 
 
 def card_css(key: str, colour) -> str:
-    """CSS tinting one `st.container(key=...)` card. The card alone: the wash is
-    translucent, so repeating it on children would stack the alpha."""
-    tint = as_hex(colour)
-    return (f'.{css_class(key)} {{ background-color: {_rgba(tint, TINT_ALPHA)} '
-            f'!important; border-color: {tint} !important; '
-            f'border-left-width: {ACCENT_WIDTH} !important; }}')
-
+    """CSS washing one `st.container(key=...)` card in its project colour.
+    The border is hidden rather than dropped, so the card keeps its box and
+    radius and reads as a chip, the way a meeting does in the calendar. The
+    card alone: the wash is translucent, so repeating it on children would
+    stack the alpha."""
+    wash = _rgba(as_hex(colour), WASH_ALPHA)
+    return (f'.{css_class(key)} {{ background-color: {wash} !important; '
+            f'border-color: transparent !important; }}')
 
 def strike(text: str, done: bool) -> str:
     """Text struck through once it is finished."""
@@ -156,7 +187,7 @@ def chip_css(key: str, colour) -> str:
     colour on a wash of it, rather than a default grey button."""
     tint = as_hex(colour)
     return (f'.{css_class(key)} button {{ '
-            f'background-color: {_rgba(tint, CHIP_ALPHA)} !important; '
+            f'background-color: {_rgba(tint, WASH_ALPHA)} !important; '
             f'color: {tint} !important; border-color: transparent !important; }}')
 
 
@@ -164,3 +195,8 @@ def label(title: str, name, colour, done: bool = False) -> str:
     """A task's title behind its project chip. Only the title is struck: the
     chip is a colour directive and tildes would stop it rendering."""
     return f"{badge(name, colour)} {strike(title, done)}".strip()
+
+
+def style_block(rules: list[str]) -> str:
+    """A page's card rules as one style element, empty when there are none."""
+    return "<style>" + "\n".join(rules) + "</style>" if rules else ""

@@ -1,13 +1,14 @@
-# Calm, low-contrast light theme: one muted indigo accent, everything else neutral.
+# Calm, low-contrast light theme: one muted indigo accent on a warm off-white,
+# tinted to match the app icon.
 [theme]
 base = "light"
 primaryColor = "#4F5D95"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F6F7F9"
-codeBackgroundColor = "#F2F3F5"
-textColor = "#1F2430"
+backgroundColor = "#FDFBF8"
+secondaryBackgroundColor = "#F4F0E9"
+codeBackgroundColor = "#F6F3EB"
+textColor = "#2A2315"
 linkColor = "#4F5D95"
-borderColor = "#B9C0CB"
+borderColor = "#C8BFAA"
 showWidgetBorder = true
 baseRadius = "8px"
 buttonRadius = "8px"
@@ -16,3 +17,7 @@ baseFontSize = 14
 headingFontSizes = ["30px", "22px", "18px", "16px", "14px", "13px"]
 headingFontWeights = [600, 600, 600, 500, 500, 500]
 linkUnderline = false
+
+[client]
+# No Deploy button or developer menu: this app is not deployed anywhere.
+toolbarMode = "viewer"

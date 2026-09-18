@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import card_css
+from palette import card_css, style_block
 
 
 def _add_project() -> None:
@@ -20,11 +20,6 @@ def _rename(project_id: int) -> None:
 def _set_description(project_id: int) -> None:
     db.set_project_description(project_id, st.session_state[f"pabout:{project_id}"])
 
-
-st.subheader("Projects", anchor=False)
-st.caption("Each project is given a colour of its own, automatically. Tasks "
-           "assigned to it are badged with that colour wherever they appear. "
-           "Archive one to retire it and hand its colour back.")
 
 st.text_input("New project", key="new_project", placeholder="Add a project…",
               label_visibility="collapsed", on_change=_add_project)
@@ -76,4 +71,4 @@ if not retired.empty:
 
 # One style block for every card, each in its project's colour.
 if rules:
-    st.html("<style>" + "\n".join(rules) + "</style>")
+    st.html(style_block(rules))

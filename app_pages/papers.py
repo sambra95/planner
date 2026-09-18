@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import NO_PROJECT, card_css
+from palette import NO_PROJECT, card_css, style_block
 
 
 def _rename(paper_id: int) -> None:
@@ -33,11 +33,6 @@ def _mark_read(paper_id: int) -> None:
     db.set_task_done(paper_id, date.today() if
                      st.session_state[f"paper_read:{paper_id}"] else None)
 
-
-st.subheader("Papers", anchor=False)
-st.caption("A paper starts with no day. Give it one and it joins that day's "
-           "checklist; tick it off once you have read it and it goes to the "
-           "archive, comments and all.")
 
 with st.form("new_paper", clear_on_submit=True, border=False):
     fields = st.columns([8, 1], vertical_alignment="center")
@@ -84,4 +79,4 @@ for paper in papers.itertuples():
                               on_change=_set_notes, args=(paper.id,))
 
 if rules:
-    st.html("<style>" + "\n".join(rules) + "</style>")
+    st.html(style_block(rules))

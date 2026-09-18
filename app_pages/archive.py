@@ -30,8 +30,6 @@ def _open_paper(paper) -> None:
     st.caption("Saved as you type.")
 
 
-st.subheader("Archive", anchor=False)
-
 days = db.all_days()
 tasks = db.completed_tasks()
 reviews = db.all_reviews()
@@ -107,8 +105,9 @@ chosen = st.selectbox("Open a week", weeks,
 start = chosen.date()
 end = start + timedelta(days=6)
 st.caption("Untick a task to put it back on the open list.")
+# `days` already holds every day, so the chosen week is a filter, not a query.
 daycard.render_week(start, {row["day"].date(): row
-                            for _, row in db.days_in(start, end).iterrows()},
+                            for _, row in days[days["week"] == chosen].iterrows()},
                     db.tasks_in(start, end), db.steps_in(start, end),
                     prefix="archive:")
 

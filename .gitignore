@@ -8,3 +8,6 @@ __pycache__/
 .agents/
 dist/
 build/
+
+# Generates assets/; the built logo is committed, the notebook is not.
+logo.ipynb

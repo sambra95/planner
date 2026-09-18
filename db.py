@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS steps (
     title   TEXT NOT NULL,
     done    INTEGER NOT NULL DEFAULT 0
 );
+-- Every task query counts its steps with a correlated subquery. Without this,
+-- each one scans the whole table. No semicolons in here: _create_tables splits
+-- the schema on them.
+CREATE INDEX IF NOT EXISTS steps_by_task ON steps(task_id);
 CREATE TABLE IF NOT EXISTS days (
     day         DATE PRIMARY KEY,
     start_time  TEXT,
@@ -197,13 +201,6 @@ def _write(sql: str, **params) -> None:
         session.commit()
 
 
-def _iso(value) -> str | None:
-    """A date-ish value as 'YYYY-MM-DD', or None when it is blank."""
-    if value is None or value == "" or pd.isna(value):
-        return None
-    return pd.Timestamp(value).date().isoformat()
-
-
 # --- Tasks ------------------------------------------------------------------
 
 def open_tasks() -> pd.DataFrame:
@@ -257,13 +254,17 @@ def _add_dated(title: str, day: date | None, kind: str) -> None:
                created_on=date.today().isoformat())
 
 
+#: Everything a dated row needs, for its card and for its editor.
+_DATED_COLUMNS = ("SELECT t.id, t.title, t.goals, t.notes, t.actions, "
+                  "t.start_time, t.end_time, t.done_on, t.description, "
+                  "COALESCE(t.done_on, t.day) AS on_day, p.name AS project, "
+                  "p.colour AS colour")
+
+
 def _of_kind(kind: str, first: date, last: date) -> pd.DataFrame:
     """One kind filed against a day in the range, earliest first: under the day
     it was finished, or the day it is set for. Undated ones are not here."""
-    return _read("SELECT t.id, t.title, t.goals, t.notes, t.actions, "
-                 "t.start_time, t.end_time, t.done_on, t.description, "
-                 "COALESCE(t.done_on, t.day) AS on_day, p.name AS project, "
-                 "p.colour AS colour"
+    return _read(_DATED_COLUMNS
                  + _FROM_TASKS
                  + "WHERE t.kind = :kind "
                  "AND COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
@@ -299,6 +300,21 @@ def papers_read(query: str = "") -> pd.DataFrame:
                  "OR LOWER(COALESCE(p.name, '')) LIKE :like) "
                  "ORDER BY t.done_on DESC, t.id DESC",
                  kind=PAPER, like=f"%{query.strip().lower()}%")
+
+
+def meetings_matching(query: str) -> pd.DataFrame:
+    """Meetings whose title, write-up or project contain `query`, newest first.
+    Matched in the database; LOWER on both sides makes it case-insensitive."""
+    return _read(_DATED_COLUMNS
+                 + _FROM_TASKS
+                 + "WHERE t.kind = :kind AND ("
+                 "LOWER(t.title) LIKE :like "
+                 "OR LOWER(COALESCE(t.goals, '')) LIKE :like "
+                 "OR LOWER(COALESCE(t.notes, '')) LIKE :like "
+                 "OR LOWER(COALESCE(t.actions, '')) LIKE :like "
+                 "OR LOWER(COALESCE(p.name, '')) LIKE :like) "
+                 "ORDER BY COALESCE(t.done_on, t.day) DESC, t.id DESC",
+                 kind=MEETING, like=f"%{query.strip().lower()}%")
 
 
 def move_meeting(meeting_id: int, day: date) -> None:
@@ -453,14 +469,6 @@ def set_task_done(task_id: int, day: date | None) -> None:
 
 
 # --- Steps ------------------------------------------------------------------
-
-def steps_for(task_id: int) -> pd.DataFrame:
-    """One task's steps, in the order they were added."""
-    frame = _read("SELECT id, title, done FROM steps WHERE task_id = :task_id "
-                  "ORDER BY id", task_id=task_id)
-    frame["done"] = frame["done"].astype(bool)
-    return frame
-
 
 def open_steps() -> pd.DataFrame:
     """Every step of every open task, in one query; the task list groups them.

@@ -8,7 +8,8 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import NO_PROJECT, badge, chip_css
+from daycard import MEETING_SECTIONS
+from palette import NO_PROJECT, badge, chip_css, style_block, wash
 from worktime import clock, when
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -40,11 +41,6 @@ def _this_month() -> None:
 
 st.session_state.setdefault("month_start", _first_of_month(date.today()))
 
-st.subheader("Meetings", anchor=False)
-st.caption("Add a meeting and it appears on its day here and in that day's "
-           "checklist in My Week. Click one to set its times or write it "
-           "up under goals, comments and action points.")
-
 with st.container(horizontal=True, vertical_alignment="center"):
     st.button("Previous", icon=":material/chevron_left:", on_click=_shift, args=(-1,))
     st.button("Next", icon=":material/chevron_right:", on_click=_shift, args=(1,))
@@ -65,17 +61,6 @@ with st.form("new_meeting", clear_on_submit=True, border=False):
                                    label_visibility="collapsed")
     if fields[2].form_submit_button("Add", width="stretch"):
         db.add_meeting(new_title, new_day)
-next_month = date(month_start.year + month_start.month // 12,
-                  month_start.month % 12 + 1, 1)
-month_end = next_month - timedelta(days=1)
-
-# The grid spans whole weeks, so it runs into the months either side. Fetch those
-# days too, then grey them out, rather than leaving holes at the corners.
-grid = calendar.Calendar(firstweekday=0).monthdatescalendar(
-    month_start.year, month_start.month)
-meetings = db.meetings_in(grid[0][0], grid[-1][-1])
-by_day = {day: frame for day, frame in meetings.groupby(meetings["on_day"].dt.date)}
-
 def _rename(meeting_id: int) -> None:
     db.rename_task(meeting_id, st.session_state[f"open_title:{meeting_id}"])
 
@@ -91,10 +76,6 @@ def _set_project(meeting_id: int) -> None:
     db.set_task_project(meeting_id, None if chosen == NO_PROJECT else chosen)
 
 
-#: The three sections a meeting is written up under.
-SECTIONS = (("goals", "Goals"), ("notes", "Comments"), ("actions", "Action points"))
-
-
 def _set_times(meeting_id: int) -> None:
     db.set_meeting_times(meeting_id,
                          st.session_state[f"open_start:{meeting_id}"],
@@ -106,10 +87,17 @@ def _save_section(meeting_id: int, field: str) -> None:
                      st.session_state[f"open_{field}:{meeting_id}"])
 
 
-@st.dialog("Meeting", width="large", on_dismiss="rerun")
+def _dismiss() -> None:
+    """A table selection outlives the dialog it opened, so remember what was
+    closed; the calendar does not need this, as a button fires once."""
+    st.session_state["dismissed_meeting"] = st.session_state.get("open_meeting")
+
+
+@st.dialog("Meeting", width="large", on_dismiss=_dismiss)
 def _open(meeting, names: list[str]) -> None:
     """The meeting, opened from the calendar. A dialog is a fragment, so editing
     leaves it open; closing reruns the page so the calendar catches up."""
+    st.session_state["open_meeting"] = meeting.id
     st.caption(f"{meeting.on_day:%A %d %B %Y}"
                + ("" if pd.isna(meeting.done_on) else " · held"))
 
@@ -133,7 +121,7 @@ def _open(meeting, names: list[str]) -> None:
                         key=f"open_end:{meeting.id}", on_change=_set_times,
                         args=(meeting.id,))
 
-    for field, label in SECTIONS:
+    for field, label in MEETING_SECTIONS:
         st.text_area(label, height=140, key=f"open_{field}:{meeting.id}",
                      value="" if pd.isna(getattr(meeting, field))
                      else getattr(meeting, field),
@@ -151,6 +139,17 @@ def _open(meeting, names: list[str]) -> None:
             # and redraws the calendar without the meeting.
             st.rerun(scope="app")
 
+
+next_month = date(month_start.year + month_start.month // 12,
+                  month_start.month % 12 + 1, 1)
+month_end = next_month - timedelta(days=1)
+
+# The grid spans whole weeks, so it runs into the months either side. Fetch those
+# days too, then grey them out, rather than leaving holes at the corners.
+grid = calendar.Calendar(firstweekday=0).monthdatescalendar(
+    month_start.year, month_start.month)
+meetings = db.meetings_in(grid[0][0], grid[-1][-1])
+by_day = {day: frame for day, frame in meetings.groupby(meetings["on_day"].dt.date)}
 
 today = date.today()
 rules = []
@@ -189,7 +188,49 @@ if in_month.empty:
     st.caption("No meetings this month.")
 
 if rules:
-    st.html("<style>" + "\n".join(rules) + "</style>")
+    st.html(style_block(rules))
 
 if opened is not None:
     _open(opened, [NO_PROJECT] + list(db.projects()["name"]))
+
+
+st.divider()
+query = st.text_input("Search meetings", key="meeting_search",
+                      placeholder="Search every month by title, write-up or project…",
+                      label_visibility="collapsed")
+
+if query:
+    found = db.meetings_matching(query)
+    if found.empty:
+        st.caption("No meetings match.")
+    else:
+        def _row_tint(row):
+            colour = found.loc[row.name, "colour"]
+            return [""] * len(row) if pd.isna(colour) else \
+                   [f"background-color: {wash(colour)}"] * len(row)
+
+        listing = pd.DataFrame({"Day": found["on_day"], "Meeting": found["title"],
+                                "Project": found["project"].fillna("-"),
+                                "Comments": found["notes"].fillna("")})
+        picked = st.dataframe(
+            listing.style.apply(_row_tint, axis=1), hide_index=True, width="stretch", height=280, key="meeting_hits",
+            on_select="rerun", selection_mode="single-row",
+            column_config={
+                "Day": st.column_config.DateColumn(format="ddd DD MMM YYYY"),
+                "Meeting": st.column_config.TextColumn(width="large"),
+                "Comments": st.column_config.TextColumn(width="medium"),
+            })
+        st.caption(f"{len(found)} meeting(s) matching · pick one to open it")
+
+        rows = picked.selection.rows
+        if not rows:
+            # Nothing picked, so a later pick of the same row should open again.
+            st.session_state.pop("dismissed_meeting", None)
+        elif opened is None:
+            # One row, as a namedtuple: a dialog is a fragment and is handed its
+            # arguments back on every rerun, and a Series does not survive that.
+            chosen = next(found.iloc[[rows[0]]].itertuples())
+            # The selection outlives the dialog, so without this the dialog
+            # reopens the moment it is dismissed.
+            if chosen.id != st.session_state.get("dismissed_meeting"):
+                _open(chosen, [NO_PROJECT] + list(db.projects()["name"]))

@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import NO_PROJECT, chip_css, strike
+from palette import NO_PROJECT, chip_css, strike, style_block
 from worktime import (DEFAULT_END, DEFAULT_START, clock, default_break,
                       WEEK_DAYS, field, is_holiday, net, or_default,
                       span, when)
@@ -253,7 +253,7 @@ def render_week(week_start: date, records: dict, tasks: pd.DataFrame,
                 opened = card(week_start + timedelta(days=offset)) or opened
 
     if rules:
-        st.html("<style>" + "\n".join(rules) + "</style>")
+        st.html(style_block(rules))
     if opened is not None:
         _open(opened, steps, prefix,
               [NO_PROJECT] + list(db.projects()["name"]))

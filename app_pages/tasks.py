@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import NO_PROJECT, card_css, strike
+from palette import NO_PROJECT, card_css, strike, style_block
 
 today = date.today()
 
@@ -49,12 +49,6 @@ def _add_step(task_id: int) -> None:
     st.session_state[f"new_step:{task_id}"] = ""
 
 
-st.subheader("Open tasks", anchor=False)
-st.caption("Give a task a day and it appears in that day's checklist. Anything "
-           "still open stays on this list until you finish it. Steps are yours "
-           "to tick as you go; only the task's own box finishes it. Meetings "
-           "live on their own page.")
-
 st.text_input("New task", key="new_task", placeholder="Add a task…",
               label_visibility="collapsed", on_change=_add_task)
 
@@ -90,7 +84,9 @@ for task in tasks.itertuples():
         head[4].button("", icon=":material/delete:", key=f"drop:{task.id}",
                        on_click=db.delete_task, args=(task.id,))
 
-        about = st.columns([0.6, 6, 3.4], vertical_alignment="center")
+        # The outer columns match the head row, so the description starts under
+        # the title and ends with the date, leaving the delete button clear.
+        about = st.columns([0.4, 9.0, 0.5], vertical_alignment="center")
         about[1].text_input("Description", key=f"about:{task.id}",
                             value="" if pd.isna(task.description) else task.description,
                             placeholder="Add a description…",
@@ -117,4 +113,4 @@ for task in tasks.itertuples():
 
 # One style block for every card that belongs to a project.
 if rules:
-    st.html("<style>" + "\n".join(rules) + "</style>")
+    st.html(style_block(rules))

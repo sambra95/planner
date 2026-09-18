@@ -15,8 +15,6 @@ QUESTIONS = [
     "What is my focus next week?",
 ]
 
-st.subheader("Weekly review", anchor=False)
-
 today = date.today()
 picked = st.date_input("Week of", value=today - timedelta(days=today.weekday()),
                        format="DD/MM/YYYY")
