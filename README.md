@@ -20,29 +20,29 @@ rather than notarised. Apple silicon only.
 
 ## The tabs
 
-- **My Week** — the calendar a week at a time: start and end times, the break
+- **My Week** - the calendar a week at a time: start and end times, the break
   between them, each day's checklist and a comment, with the week's totals on
   top. A blank weekday shows an ordinary nine to five and counts as one, so an
   untouched week reads as square; overtime is measured against 7.4 h × 5, less a
   day for each weekday marked as holiday. Click anything on a day to open and
   edit it, or take it off the day without deleting it.
-- **Tasks** — everything still to do, newest first. Each task is one card with
+- **Tasks** - everything still to do, newest first. Each task is one card with
   its project, day, optional description and steps. Steps are independent:
   ticking them all does not finish the task, and only the task's own checkbox
   decides the day it is archived under. A task whose day has passed settles onto
   that day by itself.
-- **Meetings** — a month calendar. Each meeting sits on its day in its project's
+- **Meetings** - a month calendar. Each meeting sits on its day in its project's
   colour, with optional start and finish times; click one to write it up under
   Goals, Comments and Action points. Taking a meeting off its day calls it off.
-- **Papers** — added here and kept off the task list. A paper starts with no day
+- **Papers** - added here and kept off the task list. A paper starts with no day
   and has no steps, just comments. Tick it off once read and it goes to the
   archive.
-- **Review** — four questions at the end of each week, with a reminder from
+- **Review** - four questions at the end of each week, with a reminder from
   Friday until they are answered.
-- **Projects** — a name, a description and a colour of its own, handed out
+- **Projects** - a name, a description and a colour of its own, handed out
   automatically and never repeated. Archive one to retire it: it and everything
   assigned to it turn grey, and its colour returns to circulation.
-- **Archive** — a searchable table of every paper read, then every week
+- **Archive** - a searchable table of every paper read, then every week
   recorded, with its days and review.
 
 Nothing is ever deleted behind your back: a finished item is filed under the day
@@ -52,9 +52,9 @@ it was finished, and unticking it puts it back.
 
 One SQLite file, and only on this machine:
 
-- packaged app — `~/Library/Application Support/Planner/planner.db`, so
+- packaged app - `~/Library/Application Support/Planner/planner.db`, so
   replacing the app leaves your planner alone
-- checkout — `planner.db` beside the code
+- checkout - `planner.db` beside the code
 
 There is no copy anywhere else, so include it in whatever backs up your home
 directory. Logs are in `~/Library/Logs/Planner`.
@@ -91,13 +91,13 @@ The tag sets the version in `Info.plist`. Building locally is only for testing.
 
 ## Changing things
 
-| What | Where |
-|---|---|
+| What                                                         | Where                                                                        |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
 | Hours a day and days a week, and the times a blank day shows | `STANDARD_DAY`, `WEEK_DAYS`, `DEFAULT_START`, `DEFAULT_END` in `worktime.py` |
-| Project colours | `PALETTE` in `palette.py` |
-| The weekly questions | `QUESTIONS` in `app_pages/review.py` |
-| Day size in the meetings calendar | `CELL_HEIGHT` in `app_pages/meetings.py` |
-| Colours, fonts, the tab bar | `.streamlit/config.toml` and `NAV_CSS` in `palette.py` |
+| Project colours                                              | `PALETTE` in `palette.py`                                                    |
+| The weekly questions                                         | `QUESTIONS` in `app_pages/review.py`                                         |
+| Day size in the meetings calendar                            | `CELL_HEIGHT` in `app_pages/meetings.py`                                     |
+| Colours, fonts, the tab bar                                  | `.streamlit/config.toml` and `NAV_CSS` in `palette.py`                       |
 
 ## Layout
 

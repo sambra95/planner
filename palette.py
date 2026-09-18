@@ -44,7 +44,7 @@ DEFAULT_COLOUR = PALETTE[0]
 ARCHIVED_COLOUR = "#9CA3AF"
 
 #: What a project selector shows for no project.
-NO_PROJECT = "—"
+NO_PROJECT = "-"
 
 #: How much colour washes into a card, and into a chip.
 TINT_ALPHA = 0.07

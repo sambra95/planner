@@ -59,7 +59,7 @@ else:
     # A table stays one height however long the list gets; the comments, which
     # are as long as they are, open on the row you pick.
     listing = pd.DataFrame({"Read": read["done_on"], "Paper": read["title"],
-                            "Project": read["project"].fillna("—"),
+                            "Project": read["project"].fillna("-"),
                             "Comments": read["notes"].fillna("")})
     picked = st.dataframe(
         listing, hide_index=True, width="stretch", height=280,
@@ -118,4 +118,4 @@ if answers.empty:
     st.caption("No review saved for this week.")
 for answer in answers.itertuples():
     st.markdown(f"**{answer.question}**")
-    st.write(answer.answer or "—")
+    st.write(answer.answer or "-")

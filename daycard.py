@@ -176,7 +176,7 @@ def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
                                   on_change=_save_day, args=(prefix, day))
 
         if away:
-            st.caption("Holiday — not counted.")
+            st.caption("Holiday - not counted.")
         else:
             # Only a weekday stands in as an ordinary day; a weekend default
             # would read as unearned overtime.
