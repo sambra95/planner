@@ -110,4 +110,5 @@ palette.py           project colours and the CSS built from them
 bootstrap.py         entry point for the packaged app
 app_pages/           one file per tab
 scripts/make_dist.sh builds the portable macOS bundle
+.github/workflows/  builds and publishes a release from a tag
 ```
