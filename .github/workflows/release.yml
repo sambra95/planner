@@ -39,4 +39,4 @@ jobs:
           gh release create "$TAG" --title "Planner ${TAG#v}" --generate-notes \
             || echo "Release exists; replacing its archives."
           gh release upload "$TAG" \
-            dist/Planner-macos-arm64.zip dist/Planner-macos-arm64.tar.xz --clobber
+            dist/Planner-macos-arm64.dmg dist/Planner-macos-arm64.tar.xz --clobber

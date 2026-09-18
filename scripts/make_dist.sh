@@ -9,18 +9,20 @@
 # The bundle is built for the architecture of the machine running this script.
 #
 # Usage:
-#   ./scripts/make_dist.sh [--version 1.0.0] [--no-zip] [--xz]
+#   ./scripts/make_dist.sh [--version 1.0.0] [--no-dmg] [--zip] [--xz]
 
 set -euo pipefail
 
 VERSION="1.0.0"
-MAKE_ZIP=1
+MAKE_DMG=1
+MAKE_ZIP=0
 MAKE_XZ=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version) VERSION="$2"; shift 2 ;;
         --version=*) VERSION="${1#*=}"; shift ;;
-        --no-zip) MAKE_ZIP=0; shift ;;
+        --no-dmg) MAKE_DMG=0; shift ;;
+        --zip) MAKE_ZIP=1; shift ;;
         --xz) MAKE_XZ=1; shift ;;
         -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -77,6 +79,8 @@ step "[4/7] Copying the app"
 cp streamlit_app.py bootstrap.py db.py daycard.py palette.py worktime.py "$RESOURCES/"
 cp -R app_pages "$RESOURCES/app_pages"
 cp -R assets "$RESOURCES/assets"
+# CFBundleIconFile names a file at the root of Resources, not inside a folder.
+cp assets/Planner.icns "$RESOURCES/Planner.icns"
 cp -R .streamlit "$RESOURCES/.streamlit"
 cp README.md "$RESOURCES/README.md"
 find "$RESOURCES" -name '__pycache__' -type d -prune -exec rm -rf {} +
@@ -113,6 +117,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>Planner</string>
+    <key>CFBundleIconFile</key><string>Planner</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -150,6 +155,22 @@ SIZE="$(du -sh "$APP" | cut -f1)"
 echo "    $APP ($SIZE)"
 # No version in the archive names: that keeps the GitHub
 # releases/latest/download/<name> link permanent. The version is in Info.plist.
+if [[ $MAKE_DMG == 1 ]]; then
+    # A disk image, so opening it offers the app beside an Applications alias to
+    # drag it onto. A zip cannot do that: it just unpacks wherever it lands.
+    DMG="$ROOT/dist/Planner-macos-$(uname -m).dmg"
+    STAGE="$BUILD/dmg"
+    rm -rf "$STAGE"; mkdir -p "$STAGE"
+    cp -R "$APP" "$STAGE/Planner.app"
+    ln -s /Applications "$STAGE/Applications"
+    rm -f "$DMG"
+    # ULMO (LZMA) over the default UDZO (zlib): 80 MB against 99 MB. It needs
+    # macOS 10.15, and the bundle already asks for 11.
+    hdiutil create -volname "Planner" -srcfolder "$STAGE" -ov \
+        -format ULMO -quiet "$DMG"
+    rm -rf "$STAGE"
+    echo "    $DMG ($(du -sh "$DMG" | cut -f1))"
+fi
 if [[ $MAKE_ZIP == 1 ]]; then
     ZIP="$ROOT/dist/Planner-macos-$(uname -m).zip"
     rm -f "$ZIP"

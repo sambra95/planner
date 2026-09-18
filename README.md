@@ -3,15 +3,9 @@
 A personal task list, work diary and weekly review. Runs on your Mac, keeps
 everything in one SQLite file, and talks to nothing.
 
-[![Download for macOS](https://img.shields.io/badge/Download-Planner%20for%20macOS-0b7285?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.zip)
+[![Download for macOS](https://img.shields.io/badge/Download-Planner%20for%20macOS-0b7285?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.dmg)
 
-Unzip it and drag **Planner** to Applications. Or install it in one line:
-
-```bash
-curl -L https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.zip \
-  -o /tmp/Planner.zip
-ditto -x -k /tmp/Planner.zip ~/Applications && rm /tmp/Planner.zip
-```
+Open it and drag **Planner** to the Applications folder beside it.
 
 The app carries its own Python, so nothing else needs installing. It opens in
 your browser and quits about thirty seconds after you close the last tab. The
@@ -69,8 +63,8 @@ uv sync
 ## Building the app
 
 ```bash
-./scripts/make_dist.sh --version 1.0.0        # Planner.app and a .zip
-./scripts/make_dist.sh --version 1.0.0 --xz   # also a .tar.xz, half the size
+./scripts/make_dist.sh --version 1.0.0        # Planner.app and a .dmg
+./scripts/make_dist.sh --version 1.0.0 --xz   # also a .tar.xz, about half
 ```
 
 Built for the architecture of the machine you run it on. The build trims what a

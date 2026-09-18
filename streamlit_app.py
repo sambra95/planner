@@ -33,12 +33,16 @@ st.html(SECTION_CSS)
 st.html(INPUT_CSS)
 st.html(NAV_CSS)
 
-# The end-of-week nudge: this week once Friday comes, last week before that.
+# The end-of-week nudge, on the last working day of this week that is not a
+# holiday: normally Friday, Thursday when Friday is taken off, and so on.
 today = date.today()
 monday = today - timedelta(days=today.weekday())
-due = monday if today.weekday() >= 4 else monday - timedelta(weeks=1)
-if not any(db.review(due).values()):
-    st.info(f"Your review for the week of {due:%d %b} is still empty.",
+week = db.days_in(monday, monday + timedelta(days=4))
+off = {row["day"].date() for _, row in week.iterrows() if row["holiday"]}
+last_working = next((day for offset in range(4, -1, -1)
+                     if (day := monday + timedelta(days=offset)) not in off), None)
+if today == last_working and not any(db.review(monday).values()):
+    st.info(f"Your review for the week of {monday:%d %b} is still empty.",
             icon=":material/rate_review:")
 
 page.run()
