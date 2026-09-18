@@ -4,6 +4,9 @@ pages call. Dates go in as ISO strings and come back as pandas datetimes."""
 from __future__ import annotations
 
 import os
+import sqlite3
+import tempfile
+from contextlib import contextmanager
 from datetime import date, time
 from pathlib import Path
 
@@ -26,6 +29,9 @@ def _local_database() -> str:
 
 
 LOCAL_URL = _local_database()
+
+#: The file itself, for backing it up.
+DB_PATH = Path(LOCAL_URL.removeprefix("sqlite:///"))
 
 _DATE_COLUMNS = ("day", "done_on", "on_day", "created_on", "week_start")
 
@@ -184,6 +190,127 @@ def _conn():
     conn = st.connection("planner", type="sql", url=LOCAL_URL)
     _create_tables(conn)
     return conn
+
+
+def snapshot() -> bytes:
+    """The whole database as the bytes of a file. Taken through SQLite's backup
+    API rather than read off disk, so a write in progress cannot tear the copy.
+    Runs off the Streamlit thread, so it uses sqlite3 rather than the session."""
+    source, target = sqlite3.connect(DB_PATH), sqlite3.connect(":memory:")
+    try:
+        source.backup(target)
+        return target.serialize()
+    finally:
+        source.close()
+        target.close()
+
+
+#: What a file has to contain before it is treated as a Planner backup.
+_TABLES = ("tasks", "steps", "days", "projects", "reviews")
+
+
+@contextmanager
+def _uploaded(data: bytes):
+    """An uploaded history on disk, checked before anything is written with it:
+    a copy that failed halfway would leave the live database in pieces."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+        handle.write(data)
+        path = handle.name
+    try:
+        connection = sqlite3.connect(path)
+        try:
+            sound = connection.execute("PRAGMA integrity_check").fetchone()
+            found = {row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        except sqlite3.DatabaseError as problem:
+            raise ValueError(f"That file is not a database ({problem}).") from problem
+        finally:
+            connection.close()
+        if not sound or sound[0] != "ok":
+            raise ValueError("That history is damaged and cannot be read.")
+        missing = [name for name in _TABLES if name not in found]
+        if missing:
+            raise ValueError("Not a Planner history: no " + ", ".join(missing))
+        yield path
+    finally:
+        os.unlink(path)
+        # An older history may predate a column, so let the migrations run again.
+        _create_tables.clear()
+
+
+def restore(data: bytes) -> None:
+    """Replace everything with an uploaded history. Written through SQLite's
+    backup API rather than copied over the file, so the connection the app
+    already holds sees the new contents instead of a file swapped beneath it."""
+    with _uploaded(data) as path:
+        source, target = sqlite3.connect(path), sqlite3.connect(DB_PATH)
+        try:
+            source.backup(target)
+        finally:
+            source.close()
+            target.close()
+
+
+#: A task, meeting or paper is the same one if it is of the same kind, under the
+#: same title, on the same day. Ids cannot say: two histories number their own.
+_SAME_ITEM = ("t.kind = b.kind AND t.title = b.title "
+              "AND IFNULL(t.day, '') = IFNULL(b.day, '')")
+
+#: Added on a merge, in order: a task needs its project, a step needs its task.
+_MERGES = (
+    ("projects", """
+        INSERT INTO projects (name, description, colour, archived)
+        SELECT b.name, b.description, b.colour, b.archived FROM backup.projects b
+        WHERE NOT EXISTS (SELECT 1 FROM main.projects p WHERE p.name = b.name)"""),
+    ("days", """
+        INSERT INTO days (day, start_time, end_time, break_hours, comment, holiday)
+        SELECT b.day, b.start_time, b.end_time, b.break_hours, b.comment, b.holiday
+        FROM backup.days b
+        WHERE NOT EXISTS (SELECT 1 FROM main.days d WHERE d.day = b.day)"""),
+    ("reviews", """
+        INSERT INTO reviews (week_start, question, answer)
+        SELECT b.week_start, b.question, b.answer FROM backup.reviews b
+        WHERE NOT EXISTS (SELECT 1 FROM main.reviews r
+                          WHERE r.week_start = b.week_start
+                            AND r.question = b.question)"""),
+    ("tasks", f"""
+        INSERT INTO tasks (title, day, done_on, created_on, project_id, description,
+                           kind, goals, notes, actions, start_time, end_time)
+        SELECT b.title, b.day, b.done_on, b.created_on,
+               (SELECT p.id FROM main.projects p JOIN backup.projects bp
+                 ON bp.name = p.name WHERE bp.id = b.project_id),
+               b.description, b.kind, b.goals, b.notes, b.actions,
+               b.start_time, b.end_time
+        FROM backup.tasks b
+        WHERE NOT EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})"""),
+    ("steps", f"""
+        INSERT INTO steps (task_id, title, done)
+        SELECT (SELECT t.id FROM main.tasks t WHERE {_SAME_ITEM} LIMIT 1),
+               s.title, s.done
+        FROM backup.steps s JOIN backup.tasks b ON b.id = s.task_id
+        WHERE EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})
+          AND NOT EXISTS (
+              SELECT 1 FROM main.steps ms JOIN main.tasks t ON t.id = ms.task_id
+              WHERE {_SAME_ITEM} AND ms.title = s.title)"""),
+)
+
+
+def merge(data: bytes) -> dict[str, int]:
+    """Add whatever an uploaded history holds that is not here already, and
+    report how much of each. Nothing here is changed or removed: an item already
+    present is left exactly as it is."""
+    added = {}
+    with _uploaded(data) as path:
+        connection = sqlite3.connect(DB_PATH)
+        try:
+            connection.execute("ATTACH DATABASE ? AS backup", (path,))
+            with connection:                      # one transaction, or none of it
+                for table, statement in _MERGES:
+                    added[table] = connection.execute(statement).rowcount
+            connection.execute("DETACH DATABASE backup")
+        finally:
+            connection.close()
+    return {table: count for table, count in added.items() if count}
 
 
 def _read(sql: str, **params) -> pd.DataFrame:
