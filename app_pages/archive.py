@@ -1,7 +1,7 @@
 """Archive: papers read, then every week recorded, with the week you pick
 opened up underneath."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -45,7 +45,7 @@ for frame, column in ((days, "day"), (tasks, "done_on"), (reviews, "week_start")
 weeks = sorted(set(days["week"]) | set(tasks["week"]) | set(reviews["week"]),
                reverse=True)
 
-st.markdown("**Papers read**")
+st.markdown("**Paper archive**")
 query = st.text_input("Search papers", key="paper_search",
                       placeholder="Search titles, comments and projects…",
                       label_visibility="collapsed")
@@ -118,3 +118,50 @@ if answers.empty:
 for answer in answers.itertuples():
     st.markdown(f"**{answer.question}**")
     st.write(answer.answer or "-")
+
+st.divider()
+st.markdown("**Backups**")
+
+outcome = st.session_state.pop("restored", None)
+if outcome:
+    st.success(outcome)
+
+# One row: the button sizes to its label and the uploader takes the rest.
+with st.container(horizontal=True, vertical_alignment="center"):
+    st.download_button("Backup history", data=db.snapshot,
+                       file_name=f"planner-history-{date.today():%Y-%m-%d}.db",
+                       mime="application/vnd.sqlite3", icon=":material/download:",
+                       help="Your whole history, as one file.")
+    restoring = st.file_uploader("Restore history", type=["db"],
+                                 label_visibility="collapsed",
+                                 help="A file saved by Backup history.")
+
+if restoring is not None:
+    how = st.segmented_control("How to apply it", ["Merge", "Overwrite"],
+                               default="Merge", label_visibility="collapsed")
+    with st.popover(f"{how} this history", icon=":material/upload:"):
+        if how == "Overwrite":
+            st.markdown("**Replace everything with this file?**")
+            st.caption("Every task, day, project and review in the app is written "
+                       "over. This cannot be undone, so back up first.")
+        else:
+            st.markdown("**Add what is missing from this file?**")
+            st.caption("Nothing here is changed or removed. A task, meeting or "
+                       "paper of the same kind, title and day is already here, "
+                       "so it is left alone.")
+        if st.button("Yes, go ahead", type="primary"):
+            try:
+                if how == "Overwrite":
+                    db.restore(restoring.getvalue())
+                    outcome = "History replaced."
+                else:
+                    added = db.merge(restoring.getvalue())
+                    outcome = ("Added " + ", ".join(f"{count} {name}"
+                                                    for name, count in added.items())
+                               if added else "Nothing to add: it is all here already.")
+            except ValueError as problem:
+                st.error(str(problem))
+            else:
+                # The message has to outlive the rerun that redraws the page.
+                st.session_state["restored"] = outcome
+                st.rerun()
