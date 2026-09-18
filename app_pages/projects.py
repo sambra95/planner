@@ -1,8 +1,5 @@
-"""Projects: a name, an optional description, and a colour of its own.
-
-Laid out like the task list - one card each, in the project's own colour. Assign
-a task to a project on the Tasks page and it carries that colour with it.
-"""
+"""Projects: a name, an optional description, and a colour of its own. One card
+each, laid out like the task list."""
 
 import pandas as pd
 import streamlit as st
@@ -39,7 +36,7 @@ rules = []
 
 
 def _card(project, archived: bool) -> None:
-    """One project: its name, its description, and what can be done with it."""
+    """One project card."""
     rules.append(card_css(f"project-{project.id}", project.colour))
     with st.container(border=True, key=f"project-{project.id}"):
         head = st.columns([7.4, 0.5, 0.5], vertical_alignment="center")

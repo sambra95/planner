@@ -6,3 +6,5 @@ __pycache__/
 # Symlinks into .venv, created by Streamlit for its bundled agent skills.
 .claude/
 .agents/
+dist/
+build/

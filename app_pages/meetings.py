@@ -1,9 +1,5 @@
-"""Meetings: a month at a time, as a calendar, with the minutes underneath.
-
-A meeting is a task with the meeting box ticked, so it is filed on the day it
-happened - the day it was finished, or the day it is set for if it is still to
-come.
-"""
+"""Meetings: a month calendar, each on the day it happened - the day it was
+held, or the day it is set for."""
 
 import calendar
 from datetime import date, timedelta
@@ -85,8 +81,7 @@ def _rename(meeting_id: int) -> None:
 
 
 def _set_day(meeting_id: int) -> None:
-    """Move a meeting to another day. A meeting always has one - a cleared box is
-    ignored rather than leaving it in a month that cannot show it."""
+    """Move a meeting. A cleared box is ignored: it always has a day."""
     if chosen := st.session_state[f"open_day:{meeting_id}"]:
         db.move_meeting(meeting_id, chosen)
 
@@ -96,7 +91,7 @@ def _set_project(meeting_id: int) -> None:
     db.set_task_project(meeting_id, None if chosen == NO_PROJECT else chosen)
 
 
-#: The three things a meeting is written up under, and the box each one gets.
+#: The three sections a meeting is written up under.
 SECTIONS = (("goals", "Goals"), ("notes", "Comments"), ("actions", "Action points"))
 
 
@@ -113,12 +108,8 @@ def _save_section(meeting_id: int, field: str) -> None:
 
 @st.dialog("Meeting", width="large", on_dismiss="rerun")
 def _open(meeting, names: list[str]) -> None:
-    """The meeting, opened from its day in the calendar: everything about it.
-
-    A dialog behaves as a fragment, so editing in here reruns only the dialog and
-    leaves it open. Closing it reruns the page, so the calendar catches up with
-    a changed title or day.
-    """
+    """The meeting, opened from the calendar. A dialog is a fragment, so editing
+    leaves it open; closing reruns the page so the calendar catches up."""
     st.caption(f"{meeting.on_day:%A %d %B %Y}"
                + ("" if pd.isna(meeting.done_on) else " · held"))
 

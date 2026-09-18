@@ -12,9 +12,7 @@ import re
 
 import pandas as pd
 
-#: Distinct hues, spaced around the wheel and legible on a light or dark theme.
-#: The first seven match the Streamlit badge colours projects used to be given,
-#: so existing projects keep the colour they already had.
+#: Distinct hues, legible on a light or dark theme.
 PALETTE = [
     "#3B82F6",  # blue        #14B8A6 teal onwards are the extras that take
     "#22C55E",  # green       a project list past the seven named colours
@@ -34,22 +32,21 @@ PALETTE = [
     "#64748B",  # slate
 ]
 
-#: What the seven old named colours became, so stored names still resolve.
+#: Named colours that may still be stored, and their hex.
 LEGACY = {"blue": PALETTE[0], "green": PALETTE[1], "orange": PALETTE[2],
           "red": PALETTE[3], "violet": PALETTE[4], "yellow": PALETTE[5],
           "gray": PALETTE[6], "grey": PALETTE[6]}
 
 DEFAULT_COLOUR = PALETTE[0]
 
-#: What an archived project and everything under it turns. Deliberately not one
-#: of PALETTE, so archiving frees the project's old colour without spending a
-#: new one: no live project ever needs to be this grey.
+#: What an archived project turns. Not in PALETTE, so archiving frees a colour
+#: rather than spending one.
 ARCHIVED_COLOUR = "#9CA3AF"
 
-#: What a project selector shows for "no project at all".
+#: What a project selector shows for no project.
 NO_PROJECT = "—"
 
-#: How much of the project colour washes into a task's card, and into its chip.
+#: How much colour washes into a card, and into a chip.
 TINT_ALPHA = 0.07
 CHIP_ALPHA = 0.16
 
@@ -57,20 +54,16 @@ CHIP_ALPHA = 0.16
 BORDER_WIDTH = "2px"
 ACCENT_WIDTH = "5px"
 
-#: Bordered containers are the only `stVerticalBlock`s with a border style, so a
-#: width set on all of them shows up on exactly those and is a no-op elsewhere.
+#: Only bordered containers have a border style, so this shows on those alone.
 SECTION_CSS = (f'<style>[data-testid="stVerticalBlock"] '
                f'{{ border-width: {BORDER_WIDTH}; }}</style>')
 
-#: The top navigation, spread the width of the bar instead of bunched at the
-#: left. Each tab is given an equal share of the row and its label centred in it;
-#: `rc-overflow` and `rc-overflow-item` are the menu Streamlit builds the bar
-#: from, and the chain between them has to be widened too or the link keeps
-#: hugging its text.
+#: Tabs spread the width of the bar, each an equal share. The chain below
+#: `rc-overflow` has to be widened too, or the link hugs its text.
 #: Mirrors `borderColor` in .streamlit/config.toml, which CSS cannot read.
 BORDER_COLOUR = "#B9C0CB"
 
-#: Height of the navigation bar, which has to clear the tabs inside it.
+#: Bar height; has to clear the tabs inside it.
 NAV_HEIGHT = "72px"
 
 NAV_CSS = f"""<style>
@@ -94,7 +87,7 @@ NAV_CSS = f"""<style>
 .stAppHeader [data-testid="stTopNavLink"] span {{ font-size: 1.2rem !important; }}
 </style>"""
 
-#: Golden angle: successive hues land as far from each other as possible.
+#: Golden angle: successive hues land as far apart as possible.
 _GOLDEN = 0.6180339887498949
 
 
@@ -107,13 +100,8 @@ def as_hex(colour) -> str:
 
 
 def next_colour(used) -> str:
-    """A colour no existing project holds.
-
-    The palette is tried in order first, so a short project list stays on the
-    hand-picked hues. Past that, walk the hue wheel by the golden angle until
-    landing on something unused - which always terminates, because each turn
-    yields a new hue and only finitely many are taken.
-    """
+    """A colour no existing project holds: the palette in order, then the hue
+    wheel by golden angle until one is free."""
     taken = {as_hex(colour) for colour in used}
     for colour in PALETTE:
         if colour not in taken:
@@ -129,12 +117,8 @@ def next_colour(used) -> str:
 
 
 def css_class(key: str) -> str:
-    """The class Streamlit puts on a widget given its key.
-
-    It keeps letters, digits, underscores and hyphens and turns everything else
-    into a hyphen, so a key like "week:open:3" becomes "st-key-week-open-3".
-    Selectors have to be built from this, not from the key itself.
-    """
+    """The class Streamlit gives a keyed widget: "week:open:3" becomes
+    "st-key-week-open-3". Selectors must be built from this, not the key."""
     return "st-key-" + re.sub(r"[^A-Za-z0-9_-]", "-", key)
 
 
@@ -154,13 +138,8 @@ def badge(name, colour) -> str:
 
 
 def card_css(key: str, colour) -> str:
-    """CSS tinting one `st.container(key=...)` card with a project's colour.
-
-    The key class lands on the card's own `stVerticalBlock`, which is the element
-    carrying the border, so one selector is enough. It has to be the card alone:
-    the wash is translucent, and repeating it on the children inside would stack
-    the alpha and darken the tint with every layer.
-    """
+    """CSS tinting one `st.container(key=...)` card. The card alone: the wash is
+    translucent, so repeating it on children would stack the alpha."""
     tint = as_hex(colour)
     return (f'.{css_class(key)} {{ background-color: {_rgba(tint, TINT_ALPHA)} '
             f'!important; border-color: {tint} !important; '
@@ -182,9 +161,6 @@ def chip_css(key: str, colour) -> str:
 
 
 def label(title: str, name, colour, done: bool = False) -> str:
-    """A task's title with its project chip in front, when it has one.
-
-    Only the title is struck through: the chip is a Markdown colour directive
-    and wrapping that in tildes would stop it rendering as a chip.
-    """
+    """A task's title behind its project chip. Only the title is struck: the
+    chip is a colour directive and tildes would stop it rendering."""
     return f"{badge(name, colour)} {strike(title, done)}".strip()

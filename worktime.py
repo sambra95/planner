@@ -6,15 +6,14 @@ from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
-#: Contracted hours in a working day, and the days a contracted week has.
-#: Overtime is measured against the week, not against the days you filled in.
+#: A contracted day and week. Overtime is measured against the week, not
+#: against the days you filled in.
 STANDARD_DAY = 7.4
 WEEK_DAYS = 5
 WEEK_HOURS = STANDARD_DAY * WEEK_DAYS
 
-#: What a day starts out showing: an ordinary nine to five, with the break that
-#: leaves exactly a contracted day's work. The break is derived rather than
-#: typed in, so changing either the hours or the day length keeps them agreeing.
+#: What a blank day shows. The break is derived, so changing either the hours
+#: or the day length keeps them agreeing.
 DEFAULT_START = time(9, 0)
 DEFAULT_END = time(17, 0)
 
@@ -49,8 +48,8 @@ def is_holiday(record) -> bool:
 
 
 def day_hours(record) -> float | None:
-    """Hours actually worked on one day: the span between start and end, less any
-    break taken within it. None when the day is a holiday, or has no times."""
+    """Hours worked on one day: start to end, less the break. None for a holiday
+    or a day with no times."""
     if is_holiday(record):
         return None
     return net(span(clock(field(record, "start_time")),
@@ -90,9 +89,8 @@ def default_record(day: date) -> dict:
 
 
 def with_defaults(day: date, record) -> dict:
-    """A weekday's record with anything left blank standing in as an ordinary
-    day - which is exactly what its card is showing. A holiday is left alone:
-    nothing is expected of it."""
+    """A weekday's record with blanks filled in as an ordinary day, matching its
+    card. A holiday is left alone."""
     ordinary = default_record(day)
     if record is None:
         return ordinary
@@ -106,13 +104,8 @@ def with_defaults(day: date, record) -> dict:
 
 
 def week_records(week_start: date, saved: dict) -> list:
-    """The week's records for counting: what was saved, with every weekday's
-    gaps filled in as an ordinary day.
-
-    The cards show an unfilled weekday as an ordinary nine to five, so the
-    totals count it as one rather than reading the week as short. A weekend
-    counts only what was actually put on it: no work is expected there.
-    """
+    """The week's records for counting, with every weekday's gaps filled in as
+    an ordinary day. A weekend counts only what was put on it."""
     week = []
     for offset in range(7):
         day = week_start + timedelta(days=offset)
@@ -131,22 +124,17 @@ def is_weekday(record) -> bool:
 
 
 def expected(records) -> float:
-    """Hours a week owes: a full contracted week, less a day for each weekday
-    taken as holiday. A holiday at the weekend changes nothing, because no work
-    was expected then anyway."""
+    """Hours a week owes: a contracted week less a day per weekday holiday. A
+    weekend holiday changes nothing."""
     off = sum(1 for record in records
               if is_holiday(record) and is_weekday(record))
     return max(0.0, STANDARD_DAY * (WEEK_DAYS - off))
 
 
 def totals(records) -> tuple[float, float, float]:
-    """Hours worked, break hours and overtime across one week of day records.
-
-    Hours worked are already net of breaks, so a break neither earns overtime
-    nor is owed back. Overtime is what the week worked less what the week owed,
-    so a week you only half filled in reads as short rather than as square.
-    Holidays are left out of the hours and taken off what is owed.
-    """
+    """Hours worked, break and overtime for one week. Hours are net of breaks,
+    so a break neither earns overtime nor is owed back. Holidays are left out of
+    the hours and taken off what is owed."""
     records = list(records)
     working = [record for record in records if not is_holiday(record)]
     hours = [value for value in map(day_hours, working) if value is not None]

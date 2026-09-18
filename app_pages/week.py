@@ -1,9 +1,5 @@
-"""The My Week tab: the calendar, one week at a time, with work times, breaks,
-the day's checklist and a comment box, and the week's totals on top. It is the
-first thing you see, so it is the week you are in.
-
-Every widget saves as you change it, so there is nothing to submit.
-"""
+"""My Week: the calendar a week at a time, with the week's totals on top.
+Every widget saves as you change it."""
 
 from datetime import date, timedelta
 

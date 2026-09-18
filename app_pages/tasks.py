@@ -1,9 +1,5 @@
-"""Tasks: everything still to do.
-
-Each task carries its own steps. A task is finished only by its own checkbox:
-ticking every step under it changes nothing, and the day you tick the task is
-the day it is archived under.
-"""
+"""Tasks: everything still to do. A task is finished only by its own checkbox;
+ticking every step under it changes nothing."""
 
 from datetime import date
 
@@ -39,9 +35,7 @@ def _set_project(task_id: int) -> None:
 
 
 def _toggle_task(task_id: int) -> None:
-    """Finishing a task here files it under today - the day you marked it done.
-    Tick it on a day's card in the week view instead to file it under that day.
-    """
+    """Finishing here files it under today; a day's card uses that day."""
     db.set_task_done(task_id, today if st.session_state[f"done:{task_id}"] else None)
 
 
@@ -66,6 +60,7 @@ st.text_input("New task", key="new_task", placeholder="Add a task…",
 
 tasks = db.open_tasks()
 projects = db.projects()
+steps_by_task = db.open_steps()
 names = [NO_PROJECT] + list(projects["name"])
 colours = dict(zip(projects["name"], projects["colour"]))
 rules = []
@@ -102,7 +97,7 @@ for task in tasks.itertuples():
                             label_visibility="collapsed",
                             on_change=_set_description, args=(task.id,))
 
-        steps = db.steps_for(task.id)
+        steps = steps_by_task[steps_by_task["task_id"] == task.id]
         for step in steps.itertuples():
             # The empty first column indents these as substeps.
             row = st.columns([0.6, 8.4, 0.5], vertical_alignment="center")

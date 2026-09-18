@@ -1,9 +1,5 @@
-"""Papers: what there is to read, and what you thought of it.
-
-A paper sits on a day and turns up in that day's checklist like anything else,
-but it has no steps - just a box for your comments. Tick it off and it counts as
-read, and it keeps its comments in the archive.
-"""
+"""Papers to read. A paper has no steps, just comments; tick it off and it
+counts as read and keeps its comments in the archive."""
 
 from datetime import date
 
@@ -33,8 +29,7 @@ def _set_notes(paper_id: int) -> None:
 
 
 def _mark_read(paper_id: int) -> None:
-    """Reading a paper here records it as read today; the day's checklist in the
-    week view records it on that day instead."""
+    """Read here records it as read today; a day's checklist uses that day."""
     db.set_task_done(paper_id, date.today() if
                      st.session_state[f"paper_read:{paper_id}"] else None)
 

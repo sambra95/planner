@@ -75,7 +75,34 @@ finished task is filed under the day it was finished, not the day it was planned
 for, and it drops out of the editable task list at that point, so nothing later
 rewrites what a past day says. A task still open moves freely until it is done.
 
-## Running it locally
+## The macOS app
+
+`dist/Planner.app` is a portable bundle: it carries its own Python and every
+dependency, so the Mac it lands on needs nothing installed. Download the zip
+from the repo's releases, unzip it, and drag the app to Applications.
+
+It opens in your default browser and quits about thirty seconds after you close
+the last tab. Its data lives in `~/Library/Application Support/Planner`, not
+inside the bundle, so replacing the app with a newer one leaves your planner
+alone. Logs are in `~/Library/Logs/Planner`.
+
+Build it with:
+
+```bash
+./scripts/make_dist.sh --version 1.0.0        # Planner.app and a .zip
+./scripts/make_dist.sh --version 1.0.0 --xz   # also a .tar.xz, about half the size
+```
+
+Built for the architecture of the machine you run it on. The build trims what a
+packaged Streamlit app never touches — pydeck's notebook assets, bundled test
+suites, pip, tkinter, C headers, pyarrow's Flight RPC libraries — and strips
+debug symbols, taking the app from 361 MB to 219 MB. Signing comes last on
+purpose: stripping a binary removes its signature, and arm64 macOS kills
+unsigned code rather than loading it. The bundle is ad-hoc signed, which is enough for
+the Mac that built it; downloaded onto another Mac it is quarantined, and the
+first launch needs right-click → Open, unless you sign it with a Developer ID.
+
+## Running it from a checkout
 
 ```bash
 uv sync
@@ -83,37 +110,20 @@ uv sync
 ```
 
 `pyproject.toml` is the source of truth for dependencies and `uv sync` resolves
-it into `uv.lock`, which is committed. Streamlit Cloud reads `uv.lock` before
-any other dependency file, so the deployed app gets exactly the versions pinned
-here. `requirements.txt` is a hand-kept mirror for `pip`, and Cloud ignores it.
+it into `uv.lock`, which is committed. `requirements.txt` is a hand-kept mirror
+for `pip`.
 
-With no database configured the app writes to `planner.db` (SQLite) in this
-folder. Nothing on screen says so, so check your secrets are set before trusting
-a deployment to be saving anywhere permanent.
+## Where the data lives
 
-## Deploying privately on Streamlit Cloud
+Everything is in one SQLite file, and the planner only runs locally:
 
-Streamlit Cloud wipes its filesystem whenever the app restarts, so it needs a
-real database.
+- from a checkout: `planner.db` beside the code, git-ignored
+- from `Planner.app`: `~/Library/Application Support/Planner/planner.db`, so
+  replacing the app leaves your planner alone
 
-1. Create a free Postgres database — [Neon](https://neon.tech) or
-   [Supabase](https://supabase.com) — and copy its connection string.
-2. Push this folder to a **private** GitHub repository.
-3. Deploy it at [share.streamlit.io](https://share.streamlit.io), pointing at
-   `streamlit_app.py`.
-4. In the app's **Settings → Secrets**, paste the block from
-   `.streamlit/secrets.toml.example` with your own connection string:
-
-   ```toml
-   [connections.planner]
-   url = "postgresql+psycopg2://USER:PASSWORD@HOST/DATABASE?sslmode=require"
-   ```
-
-5. Under **Settings → Sharing**, keep the app private to your own account.
-
-The three tables are created on first run. To work against Postgres locally too,
-put the same block in `.streamlit/secrets.toml` — it is git-ignored, as is
-`planner.db`.
+There is no server and nothing leaves the machine. That also means there is no
+copy anywhere else — the file is worth including in whatever backs up your home
+directory.
 
 ## Changing things
 
@@ -138,6 +148,9 @@ put the same block in `.streamlit/secrets.toml` — it is git-ignored, as is
 
 ```
 streamlit_app.py     navigation, the app-wide styling, the end-of-week reminder
+bootstrap.py         entry point for the packaged app: server, browser, shutdown
+scripts/
+    make_dist.sh     builds the portable macOS bundle
 db.py                every read and write, and the schema behind them
 worktime.py          the hours arithmetic both the week and archive need
 daycard.py           one day's card, as the week view and the archive draw it

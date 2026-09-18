@@ -15,7 +15,4 @@ dependencies = [
     "pandas>=2.0,<4",
     # db.py is written against the 2.0 API: text() and session.connection().
     "sqlalchemy>=2.0,<3",
-    # The Postgres driver named in the connection URL; unused when the app
-    # falls back to SQLite.
-    "psycopg2-binary>=2.9",
 ]

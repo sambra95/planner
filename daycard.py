@@ -1,15 +1,8 @@
-"""One day's card, and a week of them, as the week view and the archive draw it.
+"""One day's card, and a week of them, shared by My Week and the archive.
 
-Both pages show the same thing, so both build it from here: times, breaks,
-that day's checklist and its comment, in a bordered card per day, Monday
-to Friday across the page with the weekend folded away.
-
-The checklist is kept to a tick and a name, in the item's project colour; its
-description, steps and notes open in a dialog, the way a meeting does on the
-Meetings page.
-
-Widget keys are prefixed per page, so the same day rendered on two pages does not
-collide in Session State.
+The checklist is a tick and a name; description, steps and notes open in a
+dialog. Widget keys are prefixed per page so the same day rendered twice does
+not collide in Session State.
 """
 
 from __future__ import annotations
@@ -36,8 +29,7 @@ def _save_day(prefix: str, day: date) -> None:
 
 
 def _toggle_task(prefix: str, task_id: int, day: date) -> None:
-    """Ticking files it under this day; unticking puts it back where it came
-    from, which is how something ticked off by mistake is undone."""
+    """Ticking files it under this day; unticking puts it back."""
     done = st.session_state[f"{prefix}task:{task_id}"]
     db.set_task_done(task_id, day if done else None)
 
@@ -48,8 +40,7 @@ def _toggle_step(prefix: str, step_id: int) -> None:
 
 
 def _clear_day(task_id: int) -> None:
-    """Take something off this day without deleting it: a task goes back to the
-    open list, a paper back to the Papers page."""
+    """Take something off this day without deleting it."""
     db.set_task_day(task_id, None)
 
 
@@ -58,8 +49,8 @@ def _rename(prefix: str, task_id: int) -> None:
 
 
 def _move(prefix: str, task_id: int, kind: str) -> None:
-    """Send it to another day. A meeting takes its record with it and must keep
-    a day; a task or paper can simply be left undated."""
+    """Send it to another day. A meeting must keep one; a task or paper need
+    not."""
     chosen = st.session_state[f"{prefix}dday:{task_id}"]
     if kind == db.MEETING:
         if chosen:
@@ -100,12 +91,8 @@ def _add_step(prefix: str, task_id: int) -> None:
 
 @st.dialog("On this day", width="large", on_dismiss="rerun")
 def _open(item, steps: pd.DataFrame, prefix: str, names: list[str]) -> None:
-    """Everything about one item, and everything you can change about it.
-
-    A dialog is a fragment, so editing here reruns only the dialog and leaves it
-    open; dismissing it reruns the page so the week catches up with a changed
-    title or day.
-    """
+    """Everything about one item, and everything you can change about it. A
+    dialog is a fragment, so editing here leaves it open."""
     st.text_input("Title", value=item.title, key=f"{prefix}dtitle:{item.id}",
                   on_change=_rename, args=(prefix, item.id))
 
@@ -191,9 +178,8 @@ def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
         if away:
             st.caption("Holiday — not counted.")
         else:
-            # Only a weekday stands in as an ordinary day. A weekend shows
-            # what is on it and nothing more, because nothing is expected there
-            # and a default would read as unearned overtime.
+            # Only a weekday stands in as an ordinary day; a weekend default
+            # would read as unearned overtime.
             ordinary = day.weekday() < WEEK_DAYS
             clocks = st.columns(2)
             start = clocks[0].time_input(

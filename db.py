@@ -1,16 +1,11 @@
-"""Every read and write the planner makes.
-
-One SQL connection, the three tables behind it, and small helpers the pages call.
-Postgres is the deployment target; with no connection configured the app falls
-back to a local SQLite file so it still runs on a laptop.
-
-Dates cross this boundary as ISO strings and come back as pandas datetimes, so
-the two dialects behave identically above this module.
-"""
+"""Every read and write the planner makes: one SQLite file and the helpers the
+pages call. Dates go in as ISO strings and come back as pandas datetimes."""
 
 from __future__ import annotations
 
+import os
 from datetime import date, time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -18,25 +13,35 @@ from sqlalchemy import inspect, text
 
 from palette import ARCHIVED_COLOUR, as_hex, next_colour
 
-LOCAL_URL = "sqlite:///planner.db"
+def _local_database() -> str:
+    """Where the SQLite file lives. The packaged app sets PLANNER_DB to point
+    outside the bundle; a checkout keeps it beside this file. Absolute either
+    way, since an app launched from the Dock starts in "/"."""
+    override = os.environ.get("PLANNER_DB", "").strip()
+    if override:
+        path = Path(override).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite:///{path}"
+    return f"sqlite:///{Path(__file__).resolve().parent / 'planner.db'}"
+
+
+LOCAL_URL = _local_database()
 
 _DATE_COLUMNS = ("day", "done_on", "on_day", "created_on", "week_start")
 
-#: What a row in `tasks` is. They share a table because they share days, the
-#: day's checklist, projects and the archive; they differ in where they are made
-#: and what hangs off them - steps for a task, notes for the other two.
+#: What a row in `tasks` is. They share a table, and differ in what hangs off
+#: them: steps for a task, notes for the other two.
 TASK = "task"
 MEETING = "meeting"
 PAPER = "paper"
 
-#: Columns renamed after the first release: the old name, and the new one.
+#: Renamed columns: old name to new.
 _RENAMED_COLUMNS = {"days": {"focus_hours": "unfocused_hours",
                              "unfocused_hours": "break_hours"},
                     "tasks": {"minutes": "notes"}}
 
-#: Columns added after the first release, per table, and the type each needs.
-#: Databases made before a column existed are caught up on connect. These names
-#: are fixed here in the source, never taken from anything a user typed.
+#: Columns added per table, applied on connect. Fixed here in the source, never
+#: taken from user input.
 _ADDED_COLUMNS = {
     "tasks": {"project_id": "INTEGER", "description": "TEXT",
               "kind": "TEXT NOT NULL DEFAULT 'task'", "notes": "TEXT",
@@ -46,22 +51,24 @@ _ADDED_COLUMNS = {
     "projects": {"archived": "INTEGER NOT NULL DEFAULT 0"},
 }
 
-#: Step totals for a task, as two columns. Correlated subqueries keep this to
-#: one statement on both Postgres and SQLite.
+#: Six queries join a row to its project; they share the wording.
+_FROM_TASKS = " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
+
+#: Step totals for a task, as two columns, in one statement.
 _STEP_COUNTS = ("(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id) AS steps, "
                 "(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id AND s.done = 1) "
                 "AS steps_done")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
-    id          {id_column},
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
     description TEXT,
     colour      TEXT NOT NULL,
     archived    INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS tasks (
-    id         {id_column},
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
     title      TEXT NOT NULL,
     day        DATE,
     done_on    DATE,
@@ -76,7 +83,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     end_time    TEXT
 );
 CREATE TABLE IF NOT EXISTS steps (
-    id      {id_column},
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
     title   TEXT NOT NULL,
     done    INTEGER NOT NULL DEFAULT 0
@@ -98,22 +105,12 @@ CREATE TABLE IF NOT EXISTS reviews (
 """
 
 
-def is_local() -> bool:
-    """True when no Postgres connection is configured and SQLite is standing in."""
-    try:
-        return "planner" not in st.secrets.get("connections", {})
-    except Exception:
-        return True
-
-
 @st.cache_resource(show_spinner=False)
 def _create_tables(_connection) -> None:
     """Create anything missing, once per session. The argument is underscored so
     Streamlit caches on the call rather than trying to hash the connection."""
-    serial = ("INTEGER PRIMARY KEY AUTOINCREMENT"
-              if _connection.engine.dialect.name == "sqlite" else "SERIAL PRIMARY KEY")
     with _connection.session as session:
-        for statement in _SCHEMA.format(id_column=serial).strip().split(";"):
+        for statement in _SCHEMA.strip().split(";"):
             if statement.strip():
                 session.execute(text(statement))
         session.commit()
@@ -121,12 +118,8 @@ def _create_tables(_connection) -> None:
 
 
 def _catch_up(connection) -> None:
-    """Bring a database made by an earlier version up to the current schema.
-
-    Renames run before additions, so a column that was renamed is not added back
-    empty alongside it. SQLite has no IF NOT EXISTS for any of this, so every
-    step looks before it leaps, which also makes the whole thing idempotent.
-    """
+    """Bring an older database up to the current schema. Renames run before
+    additions so a renamed column is not re-added empty. Idempotent."""
     def columns(table: str) -> set[str]:
         return {column["name"]
                 for column in inspect(connection.engine).get_columns(table)}
@@ -151,7 +144,6 @@ def _catch_up(connection) -> None:
                         text(f"ALTER TABLE {table} ADD COLUMN {name} {kind}"))
                 session.commit()
 
-    # Meetings used to be a boolean flag; they are now one of several kinds.
     if "is_meeting" in columns("tasks"):
         with connection.session as session:
             session.execute(text("UPDATE tasks SET kind = :meeting "
@@ -164,14 +156,8 @@ def _catch_up(connection) -> None:
 
 
 def _unique_colours(connection) -> None:
-    """Give every project a hex colour of its own.
-
-    Colours used to be stored as Streamlit palette names, of which there were
-    only seven, so a long project list repeated itself. This converts the names
-    it finds and breaks any tie, oldest project keeping the colour. Archived
-    projects are left out: they all share the one grey on purpose. It does
-    nothing once every live project already holds a distinct hex.
-    """
+    """Give every live project a hex colour of its own, oldest keeping it on a
+    tie. Archived projects are skipped: they share one grey."""
     with connection.session as session:
         rows = session.execute(
             text("SELECT id, colour FROM projects WHERE archived = 0 "
@@ -191,8 +177,7 @@ def _unique_colours(connection) -> None:
 
 def _conn():
     """The connection (``st.connection`` caches it), with its tables in place."""
-    conn = (st.connection("planner_local", type="sql", url=LOCAL_URL) if is_local()
-            else st.connection("planner", type="sql"))
+    conn = st.connection("planner", type="sql", url=LOCAL_URL)
     _create_tables(conn)
     return conn
 
@@ -222,20 +207,12 @@ def _iso(value) -> str | None:
 # --- Tasks ------------------------------------------------------------------
 
 def open_tasks() -> pd.DataFrame:
-    """Every task still to do, most recently added first. Meetings and papers are
-    not here: they are made and kept on their own pages.
-
-    Newest at the top means a task you have just typed is the one you are looking
-    at, rather than something you have to scroll to find.
-
-    A task assigned to a past day is simply still open, so it stays on this list
-    on its own - the day it was meant for is kept either way.
-    """
+    """Every task still to do, newest first. Meetings and papers live on their
+    own pages and are not here."""
     frame = _read("SELECT t.id, t.title, t.day, t.description, "
                   "p.name AS project, "
-                  + _STEP_COUNTS
-                  + " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
-                    "WHERE t.done_on IS NULL AND t.kind = :kind "
+                  + _STEP_COUNTS + _FROM_TASKS
+                  + "WHERE t.done_on IS NULL AND t.kind = :kind "
                     "ORDER BY t.id DESC", kind=TASK)
     return frame
 
@@ -281,17 +258,14 @@ def _add_dated(title: str, day: date | None, kind: str) -> None:
 
 
 def _of_kind(kind: str, first: date, last: date) -> pd.DataFrame:
-    """Everything of one kind filed against a day in the range, earliest first.
-
-    Filed the way tasks are: under the day it was finished once it is done,
-    otherwise the day it is set for. One with no day yet is not here.
-    """
+    """One kind filed against a day in the range, earliest first: under the day
+    it was finished, or the day it is set for. Undated ones are not here."""
     return _read("SELECT t.id, t.title, t.goals, t.notes, t.actions, "
                  "t.start_time, t.end_time, t.done_on, t.description, "
                  "COALESCE(t.done_on, t.day) AS on_day, p.name AS project, "
-                 "p.colour AS colour FROM tasks t "
-                 "LEFT JOIN projects p ON p.id = t.project_id "
-                 "WHERE t.kind = :kind "
+                 "p.colour AS colour"
+                 + _FROM_TASKS
+                 + "WHERE t.kind = :kind "
                  "AND COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
                  "ORDER BY COALESCE(t.done_on, t.day), t.id",
                  kind=kind, first=first.isoformat(), last=last.isoformat())
@@ -306,25 +280,20 @@ def add_paper(title: str) -> None:
 def unread_papers() -> pd.DataFrame:
     """Papers still to read, most recently added first."""
     return _read("SELECT t.id, t.title, t.day, t.notes, p.name AS project, "
-                 "p.colour AS colour FROM tasks t "
-                 "LEFT JOIN projects p ON p.id = t.project_id "
-                 "WHERE t.done_on IS NULL AND t.kind = :kind ORDER BY t.id DESC",
-                 kind=PAPER)
+                 "p.colour AS colour"
+                 + _FROM_TASKS
+                 + "WHERE t.done_on IS NULL AND t.kind = :kind "
+                   "ORDER BY t.id DESC", kind=PAPER)
 
 
 def papers_read(query: str = "") -> pd.DataFrame:
-    """Papers you have read, most recently read first.
-
-    Papers are archived on their own rather than by week: what you read is worth
-    keeping as one list, whatever week it happened in. A query narrows it to the
-    papers whose title, comments or project contain it, matched in the database
-    so the whole list never has to be read to search it. LOWER on both sides is
-    what makes it case-insensitive on Postgres as well as SQLite.
-    """
+    """Papers read, newest first, narrowed to those whose title, comments or
+    project contain `query`. Matched in the database; LOWER on both sides makes
+    it case-insensitive."""
     return _read("SELECT t.id, t.title, t.notes, t.done_on, p.name AS project, "
-                 "p.colour AS colour FROM tasks t "
-                 "LEFT JOIN projects p ON p.id = t.project_id "
-                 "WHERE t.kind = :kind AND t.done_on IS NOT NULL "
+                 "p.colour AS colour"
+                 + _FROM_TASKS
+                 + "WHERE t.kind = :kind AND t.done_on IS NOT NULL "
                  "AND (LOWER(t.title) LIKE :like "
                  "OR LOWER(COALESCE(t.notes, '')) LIKE :like "
                  "OR LOWER(COALESCE(p.name, '')) LIKE :like) "
@@ -333,14 +302,9 @@ def papers_read(query: str = "") -> pd.DataFrame:
 
 
 def move_meeting(meeting_id: int, day: date) -> None:
-    """Move a meeting to another day, record and all.
-
-    Everything is filed by `COALESCE(done_on, day)`, so a meeting that has
-    already been held has to carry its done_on to the new day too - leaving it
-    behind would pin the meeting to the day it came from and look as though
-    nothing had saved. Whether it counts as held follows the same rule as the
-    end of a day: a day gone by is held, a day still to come is not.
-    """
+    """Move a meeting, carrying its done_on: filing is by COALESCE(done_on,
+    day), so leaving it behind would pin the meeting to its old day. A day gone
+    by counts as held, a day to come does not."""
     _write("UPDATE tasks SET day = :day, done_on = :done_on "
            "WHERE id = :id AND kind = :kind",
            id=meeting_id, kind=MEETING, day=day.isoformat(),
@@ -348,19 +312,14 @@ def move_meeting(meeting_id: int, day: date) -> None:
 
 
 def add_meeting(title: str, day: date) -> None:
-    """Create a meeting on a day.
-
-    A meeting is a task carrying the meeting flag, so it shares days, projects
-    and the day's checklist with everything else - it is simply kept off the
-    open task list and made on the Meetings page instead.
-    """
+    """Create a meeting on a day. Kept off the open task list; made on the
+    Meetings page."""
     if title := title.strip():
         _add_dated(title, day, MEETING)
 
 
-#: The written sections a meeting or paper carries. A meeting uses all three; a
-#: paper only has comments. Named here so `set_task_note` can put one in the
-#: statement without ever taking a column name from anything a user typed.
+#: The written sections. A meeting uses all three, a paper only comments. Named
+#: here so `set_task_note` never takes a column name from user input.
 NOTE_FIELDS = ("goals", "notes", "actions")
 
 
@@ -382,16 +341,9 @@ def set_task_note(task_id: int, field: str, text: str) -> None:
 
 
 def close_past_days() -> None:
-    """Settle every task and meeting whose day is over onto that day.
-
-    A day you have had is a day you have had: anything put on it that is still
-    open once the day is past is recorded as done on it, and goes to the archive
-    rather than lingering on the open list. Ticking something off during the day
-    still works and records it then.
-
-    Papers are left alone - an unread paper is not read just because the day you
-    set aside for it has gone. Idempotent, so it can run on every rerun.
-    """
+    """Settle every task and meeting whose day is over onto that day. Papers are
+    left alone: an unread paper is not read just because its day has gone.
+    Idempotent, so it can run on every rerun."""
     _write("UPDATE tasks SET done_on = day WHERE kind IN (:task, :meeting) "
            "AND done_on IS NULL AND day IS NOT NULL AND day < :today",
            task=TASK, meeting=MEETING, today=date.today().isoformat())
@@ -417,21 +369,15 @@ def delete_task(task_id: int) -> None:
 # --- Projects ---------------------------------------------------------------
 
 def projects() -> pd.DataFrame:
-    """Every project, live ones first, each in the order they were made.
-
-    Archived projects stay in the list so that anything still assigned to one
-    keeps showing its name; they are simply grey and sorted to the end.
-    """
+    """Every project, live ones first. Archived ones stay so anything assigned
+    to them still shows a name; they are grey and sorted last."""
     return _read("SELECT id, name, description, colour, archived FROM projects "
                  "ORDER BY archived, id")
 
 
 def archive_project(project_id: int) -> None:
-    """Retire a project, freeing its colour for the next one.
-
-    Its tasks and papers keep it, so nothing is lost - they just turn grey along
-    with it, and the colour it was using goes back into circulation.
-    """
+    """Retire a project, freeing its colour. Its tasks and papers keep it and
+    turn grey with it."""
     _write("UPDATE projects SET archived = 1, colour = :grey WHERE id = :id",
            id=project_id, grey=ARCHIVED_COLOUR)
 
@@ -487,20 +433,15 @@ def delete_project(project_id: int) -> None:
 # --- Tasks by day -----------------------------------------------------------
 
 def tasks_in(first: date, last: date) -> pd.DataFrame:
-    """Tasks filed against each day in the range, as `on_day`.
-
-    A finished task is filed under the day it was finished, so the day it was
-    done on is a permanent record even if it was planned for another day. One
-    still open is filed under the day it is assigned to, so a plan that changes
-    moves with it.
-    """
+    """Tasks filed against each day in the range, as `on_day`: a finished one
+    under the day it was done, an open one under the day it is set for."""
     return _read("SELECT t.id, t.title, t.day, t.done_on, t.kind, t.description, "
                  "t.goals, t.notes, t.actions, t.start_time, t.end_time, "
                  "COALESCE(t.done_on, t.day) AS on_day, "
                  "p.name AS project, p.colour AS colour, "
-                 + _STEP_COUNTS + " FROM tasks t "
-                 "LEFT JOIN projects p ON p.id = t.project_id "
-                 "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
+                 + _STEP_COUNTS
+                 + _FROM_TASKS
+                 + "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
                  "ORDER BY t.id",
                  first=first.isoformat(), last=last.isoformat())
 
@@ -517,6 +458,17 @@ def steps_for(task_id: int) -> pd.DataFrame:
     """One task's steps, in the order they were added."""
     frame = _read("SELECT id, title, done FROM steps WHERE task_id = :task_id "
                   "ORDER BY id", task_id=task_id)
+    frame["done"] = frame["done"].astype(bool)
+    return frame
+
+
+def open_steps() -> pd.DataFrame:
+    """Every step of every open task, in one query; the task list groups them.
+    Asking per task would be a round trip each, on every rerun."""
+    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM steps s "
+                  "JOIN tasks t ON t.id = s.task_id "
+                  "WHERE t.done_on IS NULL AND t.kind = :kind "
+                  "ORDER BY s.task_id, s.id", kind=TASK)
     frame["done"] = frame["done"].astype(bool)
     return frame
 
@@ -561,7 +513,7 @@ def days_in(first: date, last: date) -> pd.DataFrame:
 def save_day(day: date, start: time | None, end: time | None,
              break_hours: float | None, comment: str | None,
              holiday: bool = False) -> None:
-    """Upsert one day's record; the same statement works on Postgres and SQLite."""
+    """Upsert one day's record."""
     _write("INSERT INTO days (day, start_time, end_time, break_hours, comment, "
            "holiday) VALUES (:day, :start_time, :end_time, :break_hours, "
            ":comment, :holiday) "
@@ -586,9 +538,9 @@ def all_days() -> pd.DataFrame:
 def completed_tasks() -> pd.DataFrame:
     """Every finished task, under the day it was finished."""
     return _read("SELECT t.id, t.title, t.day, t.done_on, p.name AS project, "
-                 "p.colour AS colour, " + _STEP_COUNTS + " FROM tasks t "
-                 "LEFT JOIN projects p ON p.id = t.project_id "
-                 "WHERE t.done_on IS NOT NULL ORDER BY t.done_on, t.id")
+                 "p.colour AS colour, " + _STEP_COUNTS
+                 + _FROM_TASKS
+                 + "WHERE t.done_on IS NOT NULL ORDER BY t.done_on, t.id")
 
 
 def all_reviews() -> pd.DataFrame:

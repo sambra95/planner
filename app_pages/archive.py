@@ -1,6 +1,5 @@
-"""Archive: every week you have recorded, summarised, with the week you pick
-opened up underneath - its days exactly as the week view draws them, and the
-review you wrote for it."""
+"""Archive: papers read, then every week recorded, with the week you pick
+opened up underneath."""
 
 from datetime import timedelta
 
