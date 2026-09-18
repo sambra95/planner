@@ -149,15 +149,17 @@ codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 step "[7/7] Packaging"
 SIZE="$(du -sh "$APP" | cut -f1)"
 echo "    $APP ($SIZE)"
+# No version in the archive names: that keeps the GitHub
+# releases/latest/download/<name> link permanent. The version is in Info.plist.
 if [[ $MAKE_ZIP == 1 ]]; then
-    ZIP="$ROOT/dist/Planner-$VERSION-macos-$(uname -m).zip"
+    ZIP="$ROOT/dist/Planner-macos-$(uname -m).zip"
     rm -f "$ZIP"
     ( cd "$ROOT/dist" && ditto -c -k --keepParent "Planner.app" "$ZIP" )
     echo "    $ZIP ($(du -sh "$ZIP" | cut -f1))"
 fi
 if [[ $MAKE_XZ == 1 ]]; then
     # Roughly half the zip, at the cost of needing tar to open it.
-    XZ="$ROOT/dist/Planner-$VERSION-macos-$(uname -m).tar.xz"
+    XZ="$ROOT/dist/Planner-macos-$(uname -m).tar.xz"
     rm -f "$XZ"
     ( cd "$ROOT/dist" && tar -cJf "$XZ" "Planner.app" )
     echo "    $XZ ($(du -sh "$XZ" | cut -f1))"
