@@ -5,20 +5,27 @@ from datetime import date, timedelta
 import streamlit as st
 
 import db
+from palette import NAV_CSS, SECTION_CSS
 
 st.set_page_config(page_title="Planner", page_icon=":material/event_note:",
                    layout="wide")
 
 page = st.navigation([
+    st.Page("app_pages/week.py", title="My Week",
+            icon=":material/calendar_view_week:"),
     st.Page("app_pages/tasks.py", title="Tasks", icon=":material/checklist:"),
-    st.Page("app_pages/week.py", title="Week", icon=":material/calendar_view_week:"),
+    st.Page("app_pages/meetings.py", title="Meetings", icon=":material/groups:"),
+    st.Page("app_pages/papers.py", title="Papers", icon=":material/menu_book:"),
     st.Page("app_pages/review.py", title="Review", icon=":material/rate_review:"),
+    st.Page("app_pages/projects.py", title="Projects", icon=":material/folder:"),
+    st.Page("app_pages/archive.py", title="Archive", icon=":material/inventory_2:"),
 ], position="top")
 
-st.title("Planner", anchor=False)
-if db.is_local():
-    st.caption(":orange-badge[local database] Saving to planner.db in this folder. "
-               "Set the `connections.planner` secret to use Postgres.")
+# A task or meeting settles onto its own day once that day is over.
+db.close_past_days()
+
+st.html(SECTION_CSS)
+st.html(NAV_CSS)
 
 # The end-of-week nudge: this week once Friday comes, last week before that.
 today = date.today()

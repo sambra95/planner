@@ -2,3 +2,7 @@
 planner.db
 __pycache__/
 .venv/
+
+# Symlinks into .venv, created by Streamlit for its bundled agent skills.
+.claude/
+.agents/

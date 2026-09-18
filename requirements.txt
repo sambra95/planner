@@ -1,4 +1,8 @@
-streamlit>=1.58
-pandas>=2.0
-SQLAlchemy>=2.0
+# A mirror of the dependencies in pyproject.toml, for `pip install -r`.
+# Streamlit Cloud does NOT read this file: it looks for uv.lock first and uses
+# only the first dependency file it finds. Change pyproject.toml, then re-run
+# `uv sync` to update uv.lock, and keep this in step by hand.
+streamlit>=1.64,<2
+pandas>=2.0,<4
+sqlalchemy>=2.0,<3
 psycopg2-binary>=2.9

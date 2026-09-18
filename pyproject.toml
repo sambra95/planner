@@ -1,0 +1,21 @@
+[project]
+name = "planner"
+version = "0.1.0"
+description = "A personal task list, work diary and weekly review"
+readme = "README.md"
+# `time | None` and friends are evaluated at runtime in app_pages/week.py,
+# which needs PEP 604 unions.
+requires-python = ">=3.10"
+dependencies = [
+    # Floor: the version the app is developed and tested against. It leans on
+    # horizontal containers, width="stretch", top navigation and bordered
+    # metrics, all of which are recent. Ceiling: 2.0 is free to break anything.
+    "streamlit>=1.64,<2",
+    # Tested on 3.0; 2.x has every method used here (to_datetime, .dt, fillna).
+    "pandas>=2.0,<4",
+    # db.py is written against the 2.0 API: text() and session.connection().
+    "sqlalchemy>=2.0,<3",
+    # The Postgres driver named in the connection URL; unused when the app
+    # falls back to SQLite.
+    "psycopg2-binary>=2.9",
+]
