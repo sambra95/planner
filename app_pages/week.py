@@ -26,7 +26,7 @@ week_end = week_start + timedelta(days=6)
 
 days = db.days_in(week_start, week_end)
 records = {row["day"].date(): row for _, row in days.iterrows()}
-tasks = db.tasks_in(week_start, week_end)
+tasks = db.items_in(week_start, week_end)
 steps = db.steps_in(week_start, week_end)
 
 with st.container(horizontal=True, vertical_alignment="center"):

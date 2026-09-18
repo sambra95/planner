@@ -1,31 +1,15 @@
-"""Papers to read. A paper has no steps, just comments; tick it off and it
-counts as read and keeps its comments in the archive."""
+"""Papers: what is still to read, then everything read, searchable by title,
+tag, note or project. A paper has no steps, just notes and keyword tags, and
+opens the same editor a task does."""
 
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
+import daycard
 import db
-from palette import NO_PROJECT, card_css, style_block
-
-
-def _rename(paper_id: int) -> None:
-    db.rename_task(paper_id, st.session_state[f"paper_title:{paper_id}"])
-
-
-def _set_day(paper_id: int) -> None:
-    db.set_task_day(paper_id, st.session_state[f"paper_day:{paper_id}"])
-
-
-def _set_project(paper_id: int) -> None:
-    chosen = st.session_state[f"paper_project:{paper_id}"]
-    db.set_task_project(paper_id, None if chosen == NO_PROJECT else chosen)
-
-
-def _set_notes(paper_id: int) -> None:
-    db.set_task_note(paper_id, "notes",
-                     st.session_state[f"paper_notes:{paper_id}"])
+from palette import NO_PROJECT, chip_css, strike, style_block
 
 
 def _mark_read(paper_id: int) -> None:
@@ -44,39 +28,67 @@ with st.form("new_paper", clear_on_submit=True, border=False):
 papers = db.unread_papers()
 names = [NO_PROJECT] + list(db.projects()["name"])
 rules = []
+opened = None
 
 if papers.empty:
     st.caption("Nothing to read.")
 
 for paper in papers.itertuples():
+    day = "" if pd.isna(paper.day) else f" · {paper.day:%a %d %b}"
+    tags = "" if pd.isna(paper.tags) else f" · {paper.tags}"
     if not pd.isna(paper.colour):
-        rules.append(card_css(f"paper-{paper.id}", paper.colour))
-    with st.container(border=True, key=f"paper-{paper.id}"):
-        head = st.columns([0.4, 5, 2, 2, 0.5], vertical_alignment="center")
-        head[0].checkbox("Read", value=False, key=f"paper_read:{paper.id}",
-                         label_visibility="collapsed", help="Mark as read",
-                         on_change=_mark_read, args=(paper.id,))
-        head[1].text_input("Paper", value=paper.title,
-                           key=f"paper_title:{paper.id}",
-                           label_visibility="collapsed", on_change=_rename,
-                           args=(paper.id,))
-        head[2].selectbox("Project", names, key=f"paper_project:{paper.id}",
-                          index=names.index(paper.project)
-                          if paper.project in names else 0,
-                          label_visibility="collapsed", on_change=_set_project,
-                          args=(paper.id,))
-        head[3].date_input("Day", value=None if pd.isna(paper.day)
-                           else paper.day.date(), key=f"paper_day:{paper.id}",
-                           format="DD/MM/YYYY", label_visibility="collapsed",
-                           on_change=_set_day, args=(paper.id,))
-        head[4].button("", icon=":material/delete:", key=f"paper_drop:{paper.id}",
-                       on_click=db.delete_task, args=(paper.id,))
+        rules.append(chip_css(f"papers:open:{paper.id}", paper.colour))
 
-        comments = st.columns([0.6, 8.9])
-        comments[1].text_area("Comments", key=f"paper_notes:{paper.id}", height=110,
-                              value="" if pd.isna(paper.notes) else paper.notes,
-                              placeholder="Comments…", label_visibility="collapsed",
-                              on_change=_set_notes, args=(paper.id,))
+    line = st.columns([0.4, 9, 0.5], vertical_alignment="center")
+    line[0].checkbox("Read", value=False, key=f"paper_read:{paper.id}",
+                     label_visibility="collapsed", help="Mark as read",
+                     on_change=_mark_read, args=(paper.id,))
+    if line[1].button(f"{strike(paper.title, False)}{day}{tags}",
+                      key=f"papers:open:{paper.id}", width="stretch"):
+        opened = paper
+    line[2].button("", icon=":material/delete:", key=f"paper_drop:{paper.id}",
+                   on_click=db.delete_task, args=(paper.id,))
 
+st.divider()
+st.markdown("**Read**")
+query = st.text_input("Search papers", key="paper_search",
+                      placeholder="Search titles, tags, notes and projects…",
+                      label_visibility="collapsed")
+read = db.papers_read(query)
+
+if read.empty:
+    st.caption("No papers match." if query else "No papers read yet.")
+else:
+    # A table stays one height however long the list gets; the notes, which are
+    # as long as they are, open on the row you pick.
+    listing = pd.DataFrame({"Read": read["done_on"], "Paper": read["title"],
+                            "Tags": read["tags"].fillna(""),
+                            "Project": read["project"].fillna("-"),
+                            "Notes": read["notes"].fillna("")})
+    picked = st.dataframe(
+        listing, hide_index=True, width="stretch", height=280, key="paper_hits",
+        on_select="rerun", selection_mode="single-row",
+        column_config={
+            "Read": st.column_config.DateColumn(format="ddd DD MMM YYYY"),
+            "Paper": st.column_config.TextColumn(width="large"),
+            "Tags": st.column_config.TextColumn(width="small"),
+            "Notes": st.column_config.TextColumn(width="medium"),
+        })
+    rows = picked.selection.rows
+    if not rows:
+        # Nothing picked, so a later pick of the same row should open again.
+        st.session_state.pop("dismissed_item", None)
+    elif opened is None:
+        # One row, as a namedtuple: a dialog is a fragment and is handed its
+        # arguments back on every rerun, and a Series does not survive that.
+        chosen = next(read.iloc[[rows[0]]].itertuples())
+        # The selection outlives the dialog, so without this it reopens at once.
+        if chosen.id != st.session_state.get("dismissed_item"):
+            opened = chosen
+
+# One style block for every chip, each in its project's colour.
 if rules:
     st.html(style_block(rules))
+
+if opened is not None:
+    daycard.open_item(opened, "papers:", names)

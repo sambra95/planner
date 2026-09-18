@@ -5,7 +5,8 @@ everything in one SQLite file, and talks to nothing.
 
 [![Download for macOS](https://img.shields.io/badge/Download-Planner%20for%20macOS-0b7285?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.dmg)
 
-Open it and drag **Planner** to the Applications folder beside it.
+Open it. A window appears with **Planner** beside the Applications folder:
+drag one onto the other. That is the whole install.
 
 The app carries its own Python, so nothing else needs installing. It opens in
 your browser and quits about thirty seconds after you close the last tab. The
@@ -23,16 +24,16 @@ rather than notarised. Apple silicon only.
 - **Tasks** - everything still to do, newest first. Each task is one card with
   its project, day, optional description and steps. Steps are independent:
   ticking them all does not finish the task, and only the task's own checkbox
-  decides the day it is archived under. A task whose day has passed settles onto
-  that day by itself.
+  decides the day it is archived under. A task still open when its day passes
+  comes off that day and goes back on the list.
 - **Meetings** - a month calendar. Each meeting sits on its day in its project's
   colour, with optional start and finish times; click one to write it up under
-  Goals, Comments and Action points. Taking a meeting off its day calls it off.
+  Goals, Notes and Action points. Taking a meeting off its day calls it off.
 - **Papers** - added here and kept off the task list. A paper starts with no day
-  and has no steps, just comments. Tick it off once read and it goes to the
-  archive.
-- **Review** - four questions at the end of each week, with a reminder from
-  Friday until they are answered.
+  and has no steps, just notes and keyword tags. Tick it off once read and it
+  goes to the archive, where the tags make it findable.
+- **Review** - four questions at the end of each week, with a reminder on the
+  last working day that is not a holiday.
 - **Projects** - a name, a description and a colour of its own, handed out
   automatically and never repeated. Archive one to retire it: it and everything
   assigned to it turn grey, and its colour returns to circulation.
@@ -52,57 +53,3 @@ One SQLite file, and only on this machine:
 
 There is no copy anywhere else, so include it in whatever backs up your home
 directory. Logs are in `~/Library/Logs/Planner`.
-
-## Running from a checkout
-
-```bash
-uv sync
-.venv/bin/streamlit run streamlit_app.py
-```
-
-## Building the app
-
-```bash
-./scripts/make_dist.sh --version 1.0.0        # Planner.app and a .dmg
-./scripts/make_dist.sh --version 1.0.0 --xz   # also a .tar.xz, about half
-```
-
-Built for the architecture of the machine you run it on. The build trims what a
-packaged Streamlit app never touches and strips debug symbols, taking the app
-from 352 MB to 211 MB. Signing comes last on purpose: stripping removes a
-signature, and arm64 macOS kills unsigned code rather than loading it.
-
-`dist/` is git-ignored, so a release is how a build gets out, and that is
-automatic: push a tag and `.github/workflows/release.yml` builds on a macOS
-runner and attaches both archives to the release, which the link at the top
-then picks up.
-
-```bash
-git tag -a v1.0.1 -m "Planner 1.0.1" && git push origin v1.0.1
-```
-
-The tag sets the version in `Info.plist`. Building locally is only for testing.
-
-## Changing things
-
-| What                                                         | Where                                                                        |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Hours a day and days a week, and the times a blank day shows | `STANDARD_DAY`, `WEEK_DAYS`, `DEFAULT_START`, `DEFAULT_END` in `worktime.py` |
-| Project colours                                              | `PALETTE` in `palette.py`                                                    |
-| The weekly questions                                         | `QUESTIONS` in `app_pages/review.py`                                         |
-| Day size in the meetings calendar                            | `CELL_HEIGHT` in `app_pages/meetings.py`                                     |
-| Colours, fonts, the tab bar                                  | `.streamlit/config.toml` and `NAV_CSS` in `palette.py`                       |
-
-## Layout
-
-```
-streamlit_app.py     navigation, app-wide styling, the end-of-week reminder
-db.py                every read and write, and the schema behind them
-daycard.py           one day's card, shared by My Week and the archive
-worktime.py          hours arithmetic
-palette.py           project colours and the CSS built from them
-bootstrap.py         entry point for the packaged app
-app_pages/           one file per tab
-scripts/make_dist.sh builds the portable macOS bundle
-.github/workflows/  builds and publishes a release from a tag
-```

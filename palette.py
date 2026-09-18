@@ -56,9 +56,8 @@ BORDER_WIDTH = "2px"
 SECTION_CSS = (f'<style>[data-testid="stVerticalBlock"] '
                f'{{ border-width: {BORDER_WIDTH}; }}</style>')
 
-#: What an input is filled with. Buttons are white whatever the theme, and
-#: `secondaryBackgroundColor` covers widgets and containers alike, so an input
-#: cannot be lightened from config without also lightening every card.
+#: What an input is filled with, matching a button. `secondaryBackgroundColor`
+#: covers widgets and containers alike, so config cannot separate them.
 INPUT_FILL = "#FFFFFF"
 
 INPUT_CSS = f"""<style>
@@ -72,8 +71,6 @@ INPUT_CSS = f"""<style>
 [data-testid="stSelectbox"] > div > div {{ background-color: {INPUT_FILL}; }}
 </style>"""
 
-#: Tabs spread the width of the bar, each an equal share. The chain below
-#: `rc-overflow` has to be widened too, or the link hugs its text.
 #: Mirrors `borderColor` in .streamlit/config.toml, which CSS cannot read.
 BORDER_COLOUR = "#C8BFAA"
 
@@ -200,3 +197,43 @@ def label(title: str, name, colour, done: bool = False) -> str:
 def style_block(rules: list[str]) -> str:
     """A page's card rules as one style element, empty when there are none."""
     return "<style>" + "\n".join(rules) + "</style>" if rules else ""
+
+
+#: Enter starts the next bullet in every text area. Streamlit cannot see a
+#: keypress inside one, so the page does it, writing the value the way React
+#: listens for. db.as_bullets tidies the same text on save.
+BULLET_JS = """<script>
+(() => {
+  // st.html runs again on every rerun, so without this the listeners stack up
+  // and one Enter inserts one bullet per rerun that has happened.
+  if (window.plannerBullets) return;
+  window.plannerBullets = true;
+
+  const ours = (box) => box.tagName === "TEXTAREA";
+  const write = (box, value, caret) => {
+    const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(box, value);
+    box.dispatchEvent(new Event("input", {bubbles: true}));
+    box.setSelectionRange(caret, caret);
+  };
+  document.addEventListener("keydown", (event) => {
+    const box = event.target;
+    // Shift+Enter is a plain newline, and Cmd/Ctrl+Enter is how Streamlit
+    // applies a text area: leave all of those alone.
+    if (!ours(box) || event.key !== "Enter" || event.shiftKey
+        || event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    const at = box.selectionStart;
+    const added = "\\n- ";
+    write(box, box.value.slice(0, at) + added + box.value.slice(box.selectionEnd),
+          at + added.length);
+  }, true);
+  document.addEventListener("input", (event) => {
+    const box = event.target;
+    if (!ours(box) || box.value === "" || box.value.startsWith("- ")) return;
+    write(box, "- " + box.value, box.selectionStart + 2);
+  }, true);
+})();
+</script>"""
+

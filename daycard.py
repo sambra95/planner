@@ -68,15 +68,15 @@ def _set_description(prefix: str, task_id: int) -> None:
     db.set_task_description(task_id, st.session_state[f"{prefix}dabout:{task_id}"])
 
 
-#: What a meeting is written up under. A paper just has the one box.
-MEETING_SECTIONS = (("goals", "Goals"), ("notes", "Comments"),
-                    ("actions", "Action points"))
-
-
 def _set_times(prefix: str, task_id: int) -> None:
     db.set_meeting_times(task_id,
                          st.session_state[f"{prefix}dstart:{task_id}"],
                          st.session_state[f"{prefix}dend:{task_id}"])
+
+
+def _set_tags(prefix: str, task_id: int) -> None:
+    key = f"{prefix}dtags:{task_id}"
+    st.session_state[key] = db.set_task_tags(task_id, st.session_state[key])
 
 
 def _set_note(prefix: str, task_id: int, field: str) -> None:
@@ -89,15 +89,41 @@ def _add_step(prefix: str, task_id: int) -> None:
     st.session_state[f"{prefix}dnewstep:{task_id}"] = ""
 
 
-@st.dialog("On this day", width="large", on_dismiss="rerun")
-def _open(item, steps: pd.DataFrame, prefix: str, names: list[str]) -> None:
+#: What a meeting is written up under. A paper just has the one box.
+_MEETING_SECTIONS = (("goals", "Goals"), ("notes", "Notes"),
+                     ("actions", "Action points"))
+
+#: Only a task has steps. Papers and meetings are opened without a frame.
+NO_STEPS = pd.DataFrame(columns=["id", "task_id", "title", "done"])
+
+
+def _dismiss() -> None:
+    """Remember what was closed. A table's selection outlives the dialog it
+    opened, so without this the dialog reopens the moment it is dismissed; a
+    chip does not need it, being a button that fires once."""
+    st.session_state["dismissed_item"] = st.session_state.get("open_item")
+
+
+@st.dialog("On this day", width="large", on_dismiss=_dismiss)
+def open_item(item, prefix: str, names: list[str],
+              steps: pd.DataFrame = NO_STEPS) -> None:
     """Everything about one item, and everything you can change about it. A
-    dialog is a fragment, so editing here leaves it open."""
+    dialog is a fragment, so editing here leaves it open. Public, because every
+    page that lists items opens the same editor."""
+    st.session_state["open_item"] = item.id
+    if pd.isna(item.done_on):
+        st.markdown(f":gray-badge[Open {item.kind}]")
+    else:
+        # A paper is read, not quite "done".
+        verb = "Read" if item.kind == db.PAPER else "Completed"
+        st.markdown(f":green-badge[{verb} {item.done_on:%a %d %b %Y}]")
+
     st.text_input("Title", value=item.title, key=f"{prefix}dtitle:{item.id}",
                   on_change=_rename, args=(prefix, item.id))
 
     side = st.columns(2)
-    side[0].date_input("Day", value=item.on_day.date(),
+    side[0].date_input("Day", value=None if pd.isna(item.on_day)
+                       else item.on_day.date(),
                        key=f"{prefix}dday:{item.id}", format="DD/MM/YYYY",
                        on_change=_move, args=(prefix, item.id, item.kind))
     side[1].selectbox("Project", names, key=f"{prefix}dproject:{item.id}",
@@ -132,32 +158,46 @@ def _open(item, steps: pd.DataFrame, prefix: str, names: list[str]) -> None:
         times[1].time_input("To", clock(item.end_time), step=900,
                             key=f"{prefix}dend:{item.id}", on_change=_set_times,
                             args=(prefix, item.id))
-        for field, label in MEETING_SECTIONS:
+        for field, label in _MEETING_SECTIONS:
             st.text_area(label, key=f"{prefix}d{field}:{item.id}", height=130,
                          value="" if pd.isna(getattr(item, field))
                          else getattr(item, field),
                          placeholder=f"{label}…", on_change=_set_note,
                          args=(prefix, item.id, field))
     else:
-        st.text_area("Comments", key=f"{prefix}dnotes:{item.id}", height=180,
+        st.text_input("Tags", key=f"{prefix}dtags:{item.id}",
+                      value="" if pd.isna(getattr(item, "tags", None))
+                      else item.tags,
+                      placeholder="Keywords, separated by commas…",
+                      on_change=_set_tags, args=(prefix, item.id))
+        st.text_area("Notes", key=f"{prefix}dnotes:{item.id}", height=180,
                      value="" if pd.isna(item.notes) else item.notes,
                      on_change=_set_note, args=(prefix, item.id, "notes"))
 
-    st.caption("Saved as you type.")
-
-    if pd.isna(item.done_on) and item.kind == db.MEETING:
-        # A meeting only exists on its day, so taking it off calls it off.
-        with st.popover("Call off this meeting", icon=":material/delete:"):
-            st.markdown("**Call off this meeting?**")
-            st.caption("It is deleted, minutes and all.")
-            if st.button("Yes, call it off", type="primary",
-                         key=f"{prefix}ddrop:{item.id}"):
+    if item.kind == db.MEETING:
+        # A meeting only exists on its day, so taking it off the day deletes it.
+        held = not pd.isna(item.done_on)
+        wording = "Delete this meeting" if held else "Call off this meeting"
+        with st.popover(wording, icon=":material/delete:"):
+            st.markdown(f"**{wording}?**")
+            st.caption("It goes, minutes and all. This cannot be undone.")
+            if st.button("Yes, delete it" if held else "Yes, call it off",
+                         type="primary", key=f"{prefix}ddrop:{item.id}"):
                 db.delete_task(item.id)
                 st.rerun(scope="app")
-    elif pd.isna(item.done_on):
+    elif pd.isna(item.done_on) and not pd.isna(item.day):
+        # Only worth offering when it is on a day to be taken off.
         if st.button("Take off this day", icon=":material/event_busy:",
                      key=f"{prefix}dclear:{item.id}"):
             _clear_day(item.id)
+            st.rerun(scope="app")
+    elif item.kind in (db.TASK, db.PAPER):
+        # Finished, but not really: this puts it back where it came from, the
+        # day it was filed under along with it.
+        back = ("reading list" if item.kind == db.PAPER else "task list")
+        if st.button(f"Put back on the {back}", icon=":material/undo:",
+                     key=f"{prefix}dundo:{item.id}"):
+            db.set_task_done(item.id, None)
             st.rerun(scope="app")
 
 
@@ -227,7 +267,7 @@ def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
         if tasks.empty:
             st.caption("No tasks assigned.")
 
-        st.text_area("Comments", value=field(record, "comment") or "", height=80,
+        st.text_area("Notes", value=field(record, "comment") or "", height=80,
                      key=f"{prefix}comment:{day}", on_change=_save_day,
                      args=(prefix, day))
     return opened
@@ -255,5 +295,5 @@ def render_week(week_start: date, records: dict, tasks: pd.DataFrame,
     if rules:
         st.html(style_block(rules))
     if opened is not None:
-        _open(opened, steps, prefix,
-              [NO_PROJECT] + list(db.projects()["name"]))
+        open_item(opened, prefix, [NO_PROJECT] + list(db.projects()["name"]),
+                  steps)

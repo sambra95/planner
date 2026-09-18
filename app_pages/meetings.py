@@ -7,21 +7,16 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+import daycard
 import db
-from daycard import MEETING_SECTIONS
-from palette import NO_PROJECT, badge, chip_css, style_block, wash
-from worktime import clock, when
+from palette import NO_PROJECT, chip_css, style_block, wash
+from worktime import when
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-#: Every day is drawn the same fixed height, so the grid reads as a calendar and
-#: a busy month does not blow it up. A day needs EMPTY_DAY on its own and
-#: PER_MEETING for each meeting on it, which is how many fit before the rest go
-#: below the fold and the day is badged with its total instead.
+#: A fixed height, so the grid reads as a calendar whatever a day holds; what
+#: does not fit is reached by scrolling it, hence the badge with its total.
 CELL_HEIGHT = 120
-EMPTY_DAY = 60
-PER_MEETING = 48
-VISIBLE = max(1, (CELL_HEIGHT - EMPTY_DAY) // PER_MEETING)
 
 
 def _first_of_month(day: date) -> date:
@@ -61,83 +56,6 @@ with st.form("new_meeting", clear_on_submit=True, border=False):
                                    label_visibility="collapsed")
     if fields[2].form_submit_button("Add", width="stretch"):
         db.add_meeting(new_title, new_day)
-def _rename(meeting_id: int) -> None:
-    db.rename_task(meeting_id, st.session_state[f"open_title:{meeting_id}"])
-
-
-def _set_day(meeting_id: int) -> None:
-    """Move a meeting. A cleared box is ignored: it always has a day."""
-    if chosen := st.session_state[f"open_day:{meeting_id}"]:
-        db.move_meeting(meeting_id, chosen)
-
-
-def _set_project(meeting_id: int) -> None:
-    chosen = st.session_state[f"open_project:{meeting_id}"]
-    db.set_task_project(meeting_id, None if chosen == NO_PROJECT else chosen)
-
-
-def _set_times(meeting_id: int) -> None:
-    db.set_meeting_times(meeting_id,
-                         st.session_state[f"open_start:{meeting_id}"],
-                         st.session_state[f"open_end:{meeting_id}"])
-
-
-def _save_section(meeting_id: int, field: str) -> None:
-    db.set_task_note(meeting_id, field,
-                     st.session_state[f"open_{field}:{meeting_id}"])
-
-
-def _dismiss() -> None:
-    """A table selection outlives the dialog it opened, so remember what was
-    closed; the calendar does not need this, as a button fires once."""
-    st.session_state["dismissed_meeting"] = st.session_state.get("open_meeting")
-
-
-@st.dialog("Meeting", width="large", on_dismiss=_dismiss)
-def _open(meeting, names: list[str]) -> None:
-    """The meeting, opened from the calendar. A dialog is a fragment, so editing
-    leaves it open; closing reruns the page so the calendar catches up."""
-    st.session_state["open_meeting"] = meeting.id
-    st.caption(f"{meeting.on_day:%A %d %B %Y}"
-               + ("" if pd.isna(meeting.done_on) else " · held"))
-
-    st.text_input("Meeting", value=meeting.title, key=f"open_title:{meeting.id}",
-                  on_change=_rename, args=(meeting.id,))
-
-    side = st.columns(2)
-    side[0].date_input("Day", value=meeting.on_day.date(),
-                       key=f"open_day:{meeting.id}", format="DD/MM/YYYY",
-                       on_change=_set_day, args=(meeting.id,))
-    side[1].selectbox("Project", names, key=f"open_project:{meeting.id}",
-                      index=names.index(meeting.project)
-                      if meeting.project in names else 0,
-                      on_change=_set_project, args=(meeting.id,))
-
-    times = st.columns(2)
-    times[0].time_input("From", clock(meeting.start_time), step=900,
-                        key=f"open_start:{meeting.id}", on_change=_set_times,
-                        args=(meeting.id,))
-    times[1].time_input("To", clock(meeting.end_time), step=900,
-                        key=f"open_end:{meeting.id}", on_change=_set_times,
-                        args=(meeting.id,))
-
-    for field, label in MEETING_SECTIONS:
-        st.text_area(label, height=140, key=f"open_{field}:{meeting.id}",
-                     value="" if pd.isna(getattr(meeting, field))
-                     else getattr(meeting, field),
-                     placeholder=f"{label}…", on_change=_save_section,
-                     args=(meeting.id, field))
-    st.caption("Saved as you type.")
-
-    with st.popover("Delete this meeting", icon=":material/delete:"):
-        st.markdown("**Delete this meeting?**")
-        st.caption("Its write-up goes with it. This cannot be undone.")
-        if st.button("Yes, delete it", key=f"drop_meeting:{meeting.id}",
-                     type="primary"):
-            db.delete_task(meeting.id)
-            # Rerunning the whole app, not just this fragment, closes the dialog
-            # and redraws the calendar without the meeting.
-            st.rerun(scope="app")
 
 
 next_month = date(month_start.year + month_start.month // 12,
@@ -161,9 +79,9 @@ for column, name in zip(st.columns(7), WEEKDAYS):
 for week in grid:
     for column, day in zip(st.columns(7), week):
         on_day = by_day.get(day, pd.DataFrame())
-        # Anything past the fold is only reachable by scrolling the cell, so say
-        # how many there are next to the date rather than leave them unannounced.
-        tally = f" :gray-badge[{len(on_day)}]" if len(on_day) > VISIBLE else ""
+        # A day with anything on it says how many, so a busy day reads at a
+        # glance and the ones past the fold are not left unannounced.
+        tally = f" :gray-badge[{len(on_day)}]" if len(on_day) else ""
         with column, st.container(border=True, height=CELL_HEIGHT):
             if day == today:
                 st.markdown(f"**{day.day}** :blue-badge[today]{tally}")
@@ -190,8 +108,9 @@ if in_month.empty:
 if rules:
     st.html(style_block(rules))
 
+names = [NO_PROJECT] + list(db.projects()["name"])
 if opened is not None:
-    _open(opened, [NO_PROJECT] + list(db.projects()["name"]))
+    daycard.open_item(opened, "cal:", names)
 
 
 st.divider()
@@ -211,26 +130,26 @@ if query:
 
         listing = pd.DataFrame({"Day": found["on_day"], "Meeting": found["title"],
                                 "Project": found["project"].fillna("-"),
-                                "Comments": found["notes"].fillna("")})
+                                "Notes": found["notes"].fillna("")})
         picked = st.dataframe(
             listing.style.apply(_row_tint, axis=1), hide_index=True, width="stretch", height=280, key="meeting_hits",
             on_select="rerun", selection_mode="single-row",
             column_config={
                 "Day": st.column_config.DateColumn(format="ddd DD MMM YYYY"),
                 "Meeting": st.column_config.TextColumn(width="large"),
-                "Comments": st.column_config.TextColumn(width="medium"),
+                "Notes": st.column_config.TextColumn(width="medium"),
             })
         st.caption(f"{len(found)} meeting(s) matching · pick one to open it")
 
         rows = picked.selection.rows
         if not rows:
             # Nothing picked, so a later pick of the same row should open again.
-            st.session_state.pop("dismissed_meeting", None)
+            st.session_state.pop("dismissed_item", None)
         elif opened is None:
             # One row, as a namedtuple: a dialog is a fragment and is handed its
             # arguments back on every rerun, and a Series does not survive that.
             chosen = next(found.iloc[[rows[0]]].itertuples())
             # The selection outlives the dialog, so without this the dialog
             # reopens the moment it is dismissed.
-            if chosen.id != st.session_state.get("dismissed_meeting"):
-                _open(chosen, [NO_PROJECT] + list(db.projects()["name"]))
+            if chosen.id != st.session_state.get("dismissed_item"):
+                daycard.open_item(chosen, "cal:", names)

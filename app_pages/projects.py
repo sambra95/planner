@@ -1,11 +1,12 @@
-"""Projects: a name, an optional description, and a colour of its own. One card
-each, laid out like the task list."""
+"""Projects: a name, an optional description, dates and a colour of its own.
+One card each, laid out like the task list. Archived ones live in the Archive."""
 
 import pandas as pd
 import streamlit as st
 
+import daycard
 import db
-from palette import card_css, style_block
+from palette import NO_PROJECT, card_css, style_block
 
 
 def _add_project() -> None:
@@ -21,16 +22,100 @@ def _set_description(project_id: int) -> None:
     db.set_project_description(project_id, st.session_state[f"pabout:{project_id}"])
 
 
+def _set_dates(project_id: int) -> None:
+    db.set_project_dates(project_id, st.session_state[f"pstart:{project_id}"],
+                         st.session_state[f"pend:{project_id}"])
+
+
 st.text_input("New project", key="new_project", placeholder="Add a project…",
               label_visibility="collapsed", on_change=_add_project)
 
 projects = db.projects()
 live = projects[projects["archived"] == 0]
-retired = projects[projects["archived"] == 1]
+items = db.project_items()
+steps = db.project_steps()
+mine = {name: frame for name, frame in items.groupby("project")}
+names = [NO_PROJECT] + list(live["name"])
 rules = []
+opened = None
 
 
-def _card(project, archived: bool) -> None:
+#: The kinds a project can hold, each with what finishing one is called: a
+#: paper is read, the rest are completed.
+KINDS = ((db.TASK, "Tasks", "completed"), (db.MEETING, "Meetings", "completed"),
+         (db.PAPER, "Papers", "read"))
+
+#: What finishing one of each kind is called, for a row's status.
+FINISHED = {kind: verb for kind, _label, verb in KINDS}
+
+
+def _tally(project) -> None:
+    """How much is attached, by kind and by whether it is finished. Counted from
+    the rows already fetched for the search boxes, so this costs no query."""
+    found = mine.get(project.name)
+    if found is None:
+        found = items.iloc[0:0]
+    finished = found[found["done_on"].notna()]["kind"].value_counts()
+    open_now = found[found["done_on"].isna()]["kind"].value_counts()
+    st.markdown(" ".join(
+        f":gray-badge[{label}: {int(open_now.get(kind, 0))} open, "
+        f"{int(finished.get(kind, 0))} {verb}]" for kind, label, verb in KINDS))
+
+
+def _belongings(project) -> None:
+    """Everything assigned to this project, in a table that stays one height
+    however much there is. The box above it narrows the table, and picking a row
+    opens the same editor the item's own page uses."""
+    global opened
+    term = st.text_input(
+        "Search", key=f"psearch:{project.id}", label_visibility="collapsed",
+        placeholder="Search this project's tasks, meetings and papers…")
+
+    found = mine.get(project.name)
+    if found is None:
+        st.caption("Nothing assigned yet.")
+        return
+    if term:
+        found = found[found["haystack"].str.contains(term.strip().lower(),
+                                                     regex=False, na=False)]
+    if found.empty:
+        st.caption("Nothing matching.")
+        return
+
+    listing = pd.DataFrame({
+        "Kind": found["kind"].str.capitalize(),
+        "Item": found["title"],
+        "Day": found["on_day"],
+        "Status": [FINISHED[kind].capitalize() if pd.notna(done) else "Open"
+                   for kind, done in zip(found["kind"], found["done_on"])],
+        "Notes": found["notes"].fillna(""),
+    })
+    picked = st.dataframe(
+        listing, hide_index=True, width="stretch", height=200,
+        key=f"phits:{project.id}", on_select="rerun", selection_mode="single-row",
+        column_config={
+            "Kind": st.column_config.TextColumn(width="small"),
+            "Item": st.column_config.TextColumn(width="large"),
+            "Day": st.column_config.DateColumn(format="ddd DD MMM YYYY"),
+            "Status": st.column_config.TextColumn(width="small"),
+            "Notes": st.column_config.TextColumn(width="medium"),
+        })
+
+    # A selection outlives the dialog it opened, and every project keeps its
+    # own, so opening on "something is selected" would reopen a stale row the
+    # moment any dialog closed. Open only when this table's pick changes.
+    rows = picked.selection.rows
+    # One row, as a namedtuple: a dialog is a fragment and is handed its
+    # arguments back on every rerun, and a Series does not survive that.
+    chosen = next(found.iloc[[rows[0]]].itertuples()) if rows else None
+    seen = f"pseen:{project.id}"
+    if (chosen.id if chosen else None) != st.session_state.get(seen):
+        st.session_state[seen] = chosen.id if chosen else None
+        if chosen is not None and opened is None:
+            opened = chosen
+
+
+def _card(project) -> None:
     """One project card."""
     rules.append(card_css(f"project-{project.id}", project.colour))
     with st.container(border=True, key=f"project-{project.id}"):
@@ -38,37 +123,47 @@ def _card(project, archived: bool) -> None:
         head[0].text_input("Project", value=project.name, key=f"pname:{project.id}",
                            label_visibility="collapsed", on_change=_rename,
                            args=(project.id,))
-        if archived:
-            head[1].button("", icon=":material/unarchive:",
-                           key=f"prestore:{project.id}",
-                           on_click=db.restore_project, args=(project.id,))
-        else:
-            head[1].button("", icon=":material/archive:",
-                           key=f"parchive:{project.id}",
-                           on_click=db.archive_project, args=(project.id,))
+        # Archiving takes the colour off everything assigned to it, so it asks
+        # first, the way calling off a meeting does.
+        with head[1].popover("", icon=":material/archive:"):
+            st.markdown(f"**Archive {project.name}?**")
+            st.caption("It and everything assigned to it turn grey, and its "
+                       "colour goes back into circulation. It moves to the "
+                       "Archive page, and you can restore it from there.")
+            if st.button("Yes, archive it", type="primary",
+                         key=f"parchive:{project.id}"):
+                db.archive_project(project.id)
+                st.rerun()
         head[2].button("", icon=":material/delete:", key=f"pdrop:{project.id}",
                        on_click=db.delete_project, args=(project.id,))
 
-        about = st.columns([0.6, 6, 3.4], vertical_alignment="center")
-        about[1].text_input(
+        about = st.columns([5.8, 1.6, 1.6], vertical_alignment="center")
+        about[0].text_input(
             "Description", key=f"pabout:{project.id}",
             value="" if pd.isna(project.description) else project.description,
             placeholder="Add a description…", label_visibility="collapsed",
             on_change=_set_description, args=(project.id,))
+        # Either end may be left open, so both boxes start empty.
+        for column, field, label in ((about[1], "start_on", "From"),
+                                     (about[2], "end_on", "To")):
+            stamp = getattr(project, field)
+            column.date_input(
+                label, value=None if pd.isna(stamp) else stamp.date(),
+                key=f"p{field.split('_')[0]}:{project.id}", format="DD/MM/YYYY",
+                on_change=_set_dates, args=(project.id,))
+
+        _tally(project)
+        _belongings(project)
 
 
 if live.empty:
     st.caption("No projects yet.")
 for project in live.itertuples():
-    _card(project, archived=False)
-
-if not retired.empty:
-    st.markdown("**Archived**")
-    st.caption("Grey, along with everything still assigned to them. Their "
-               "colours are back in circulation.")
-    for project in retired.itertuples():
-        _card(project, archived=True)
+    _card(project)
 
 # One style block for every card, each in its project's colour.
 if rules:
     st.html(style_block(rules))
+
+if opened is not None:
+    daycard.open_item(opened, "proj:", names, steps)

@@ -76,7 +76,8 @@ uv pip install --python "$BUNDLED_PY" -r "$BUILD/requirements.txt" --quiet
 echo "    $(grep -cE '^[a-zA-Z0-9_.-]+==' "$BUILD/requirements.txt") pinned packages"
 
 step "[4/7] Copying the app"
-cp streamlit_app.py bootstrap.py db.py daycard.py palette.py worktime.py "$RESOURCES/"
+# Every module at the root, so adding one needs no edit here.
+cp ./*.py "$RESOURCES/"
 cp -R app_pages "$RESOURCES/app_pages"
 cp -R assets "$RESOURCES/assets"
 # CFBundleIconFile names a file at the root of Resources, not inside a folder.
@@ -160,14 +161,49 @@ if [[ $MAKE_DMG == 1 ]]; then
     # drag it onto. A zip cannot do that: it just unpacks wherever it lands.
     DMG="$ROOT/dist/Planner-macos-$(uname -m).dmg"
     STAGE="$BUILD/dmg"
+    RW="$BUILD/rw.dmg"
     rm -rf "$STAGE"; mkdir -p "$STAGE"
     cp -R "$APP" "$STAGE/Planner.app"
     ln -s /Applications "$STAGE/Applications"
-    rm -f "$DMG"
-    # ULMO (LZMA) over the default UDZO (zlib): 80 MB against 99 MB. It needs
-    # macOS 10.15, and the bundle already asks for 11.
+    rm -f "$DMG" "$RW"
+
+    # Built writable first so Finder can lay the window out, then compressed.
     hdiutil create -volname "Planner" -srcfolder "$STAGE" -ov \
-        -format ULMO -quiet "$DMG"
+        -format UDRW -quiet "$RW"
+    MOUNT="$(hdiutil attach "$RW" -nobrowse -readwrite -noverify \
+             | awk '/\/Volumes\//{print $3; exit}')"
+
+    # The arrangement Finder writes lands in the image's own .DS_Store, so the
+    # window opens showing the app beside the Applications folder to drag it
+    # onto. Best effort: a machine with no Finder session still gets a usable
+    # image, just without the positions.
+    osascript >/dev/null 2>&1 <<'LAYOUT' || echo "    (no Finder: window left unarranged)"
+tell application "Finder"
+    tell disk "Planner"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 120, 800, 520}
+        set opts to the icon view options of container window
+        set arrangement of opts to not arranged
+        set icon size of opts to 128
+        set position of item "Planner.app" of container window to {150, 200}
+        set position of item "Applications" of container window to {450, 200}
+        close
+        open
+        update without registering applications
+        delay 2
+    end tell
+end tell
+LAYOUT
+    sync
+    hdiutil detach "$MOUNT" -quiet
+
+    # ULMO (LZMA) rather than the default UDZO (zlib), and converting a
+    # read-write image compresses better than writing one compressed outright.
+    hdiutil convert "$RW" -format ULMO -o "$DMG" -quiet
+    rm -f "$RW"
     rm -rf "$STAGE"
     echo "    $DMG ($(du -sh "$DMG" | cut -f1))"
 fi

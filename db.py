@@ -33,7 +33,8 @@ LOCAL_URL = _local_database()
 #: The file itself, for backing it up.
 DB_PATH = Path(LOCAL_URL.removeprefix("sqlite:///"))
 
-_DATE_COLUMNS = ("day", "done_on", "on_day", "created_on", "week_start")
+_DATE_COLUMNS = ("day", "done_on", "on_day", "created_on", "week_start",
+                 "start_on", "end_on")
 
 #: What a row in `tasks` is. They share a table, and differ in what hangs off
 #: them: steps for a task, notes for the other two.
@@ -52,12 +53,13 @@ _ADDED_COLUMNS = {
     "tasks": {"project_id": "INTEGER", "description": "TEXT",
               "kind": "TEXT NOT NULL DEFAULT 'task'", "notes": "TEXT",
               "goals": "TEXT", "actions": "TEXT",
-              "start_time": "TEXT", "end_time": "TEXT"},
+              "start_time": "TEXT", "end_time": "TEXT", "tags": "TEXT"},
     "days": {"holiday": "INTEGER NOT NULL DEFAULT 0"},
-    "projects": {"archived": "INTEGER NOT NULL DEFAULT 0"},
+    "projects": {"archived": "INTEGER NOT NULL DEFAULT 0",
+                 "start_on": "DATE", "end_on": "DATE"},
 }
 
-#: Six queries join a row to its project; they share the wording.
+#: Every item query joins a row to its project; they share the wording.
 _FROM_TASKS = " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
 
 #: Step totals for a task, as two columns, in one statement.
@@ -65,13 +67,31 @@ _STEP_COUNTS = ("(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id) AS steps,
                 "(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id AND s.done = 1) "
                 "AS steps_done")
 
+#: Everything an item's card and editor read, whatever kind the item is. One
+#: list, so a task, meeting or paper arrives in the same shape wherever it is
+#: read and the editor can open any of them.
+_ITEM_COLUMNS = ("SELECT t.id, t.title, t.day, t.done_on, t.kind, t.description, "
+                 "t.goals, t.notes, t.actions, t.tags, t.start_time, t.end_time, "
+                 "COALESCE(t.done_on, t.day) AS on_day, "
+                 "p.name AS project, p.colour AS colour, " + _STEP_COUNTS)
+
+#: What a project's search box matches on, lowered here so the box can filter
+#: its own rows without going back to the database.
+_HAYSTACK = (", LOWER(t.title || ' ' || COALESCE(t.description, '') || ' ' "
+             "|| COALESCE(t.notes, '') || ' ' || COALESCE(t.tags, '')) AS haystack")
+
+#: The opening of every query that returns items.
+_ITEMS = _ITEM_COLUMNS + _FROM_TASKS
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
     description TEXT,
     colour      TEXT NOT NULL,
-    archived    INTEGER NOT NULL DEFAULT 0
+    archived    INTEGER NOT NULL DEFAULT 0,
+    start_on    DATE,
+    end_on      DATE
 );
 CREATE TABLE IF NOT EXISTS tasks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +106,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     notes       TEXT,
     actions     TEXT,
     start_time  TEXT,
-    end_time    TEXT
+    end_time    TEXT,
+    tags        TEXT
 );
 CREATE TABLE IF NOT EXISTS steps (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -333,12 +354,9 @@ def _write(sql: str, **params) -> None:
 def open_tasks() -> pd.DataFrame:
     """Every task still to do, newest first. Meetings and papers live on their
     own pages and are not here."""
-    frame = _read("SELECT t.id, t.title, t.day, t.description, "
-                  "p.name AS project, "
-                  + _STEP_COUNTS + _FROM_TASKS
-                  + "WHERE t.done_on IS NULL AND t.kind = :kind "
-                    "ORDER BY t.id DESC", kind=TASK)
-    return frame
+    return _read(_ITEMS
+                 + "WHERE t.done_on IS NULL AND t.kind = :kind "
+                   "ORDER BY t.id DESC", kind=TASK)
 
 
 def add_task(title: str) -> None:
@@ -381,18 +399,10 @@ def _add_dated(title: str, day: date | None, kind: str) -> None:
                created_on=date.today().isoformat())
 
 
-#: Everything a dated row needs, for its card and for its editor.
-_DATED_COLUMNS = ("SELECT t.id, t.title, t.goals, t.notes, t.actions, "
-                  "t.start_time, t.end_time, t.done_on, t.description, "
-                  "COALESCE(t.done_on, t.day) AS on_day, p.name AS project, "
-                  "p.colour AS colour")
-
-
 def _of_kind(kind: str, first: date, last: date) -> pd.DataFrame:
     """One kind filed against a day in the range, earliest first: under the day
     it was finished, or the day it is set for. Undated ones are not here."""
-    return _read(_DATED_COLUMNS
-                 + _FROM_TASKS
+    return _read(_ITEMS
                  + "WHERE t.kind = :kind "
                  "AND COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
                  "ORDER BY COALESCE(t.done_on, t.day), t.id",
@@ -407,33 +417,29 @@ def add_paper(title: str) -> None:
 
 def unread_papers() -> pd.DataFrame:
     """Papers still to read, most recently added first."""
-    return _read("SELECT t.id, t.title, t.day, t.notes, p.name AS project, "
-                 "p.colour AS colour"
-                 + _FROM_TASKS
+    return _read(_ITEMS
                  + "WHERE t.done_on IS NULL AND t.kind = :kind "
                    "ORDER BY t.id DESC", kind=PAPER)
 
 
 def papers_read(query: str = "") -> pd.DataFrame:
-    """Papers read, newest first, narrowed to those whose title, comments or
-    project contain `query`. Matched in the database; LOWER on both sides makes
-    it case-insensitive."""
-    return _read("SELECT t.id, t.title, t.notes, t.done_on, p.name AS project, "
-                 "p.colour AS colour"
-                 + _FROM_TASKS
+    """Papers read, newest first, narrowed to those whose title, notes, tags or
+    project contain `query`. LOWER on both sides makes the match
+    case-insensitive."""
+    return _read(_ITEMS
                  + "WHERE t.kind = :kind AND t.done_on IS NOT NULL "
                  "AND (LOWER(t.title) LIKE :like "
                  "OR LOWER(COALESCE(t.notes, '')) LIKE :like "
+                 "OR LOWER(COALESCE(t.tags, '')) LIKE :like "
                  "OR LOWER(COALESCE(p.name, '')) LIKE :like) "
                  "ORDER BY t.done_on DESC, t.id DESC",
                  kind=PAPER, like=f"%{query.strip().lower()}%")
 
 
 def meetings_matching(query: str) -> pd.DataFrame:
-    """Meetings whose title, write-up or project contain `query`, newest first.
-    Matched in the database; LOWER on both sides makes it case-insensitive."""
-    return _read(_DATED_COLUMNS
-                 + _FROM_TASKS
+    """Meetings whose title, write-up or project contain `query`, newest
+    first. LOWER on both sides makes the match case-insensitive."""
+    return _read(_ITEMS
                  + "WHERE t.kind = :kind AND ("
                  "LOWER(t.title) LIKE :like "
                  "OR LOWER(COALESCE(t.goals, '')) LIKE :like "
@@ -461,7 +467,7 @@ def add_meeting(title: str, day: date) -> None:
         _add_dated(title, day, MEETING)
 
 
-#: The written sections. A meeting uses all three, a paper only comments. Named
+#: The written sections. A meeting uses all three, a paper only notes. Named
 #: here so `set_task_note` never takes a column name from user input.
 NOTE_FIELDS = ("goals", "notes", "actions")
 
@@ -475,21 +481,46 @@ def set_meeting_times(task_id: int, start: time | None,
            end=end.strftime("%H:%M") if end else None)
 
 
+def set_task_tags(task_id: int, tags: str) -> str:
+    """Keywords for a paper, kept as one comma-separated line so a search can
+    match them with the rest of its text. Blanks and repeats are dropped, and
+    the tidied line is returned so the box it came from can show it."""
+    cleaned = ", ".join(dict.fromkeys(
+        word.strip() for word in tags.split(",") if word.strip()))
+    _write("UPDATE tasks SET tags = :tags WHERE id = :id",
+           tags=cleaned or None, id=task_id)
+    return cleaned
+
+
+def as_bullets(text: str) -> str:
+    """Every line as a bullet. The page starts the next one when Enter is
+    pressed, but the text is tidied here too, so a line typed without one - or
+    pasted in - still comes back as a bullet."""
+    lines = [line.strip() for line in (text or "").splitlines()]
+    return "\n".join(line if line.startswith("- ") else f"- {line}"
+                     for line in lines if line.strip("- ").strip())
+
+
 def set_task_note(task_id: int, field: str, text: str) -> None:
     """Set one written section of a meeting or paper. Blank means none."""
     if field not in NOTE_FIELDS:
         raise ValueError(f"not a note field: {field!r}")
     _write(f"UPDATE tasks SET {field} = :text WHERE id = :id",
-           id=task_id, text=text.strip() or None)
+           id=task_id, text=as_bullets(text) or None)
 
 
 def close_past_days() -> None:
-    """Settle every task and meeting whose day is over onto that day. Papers are
-    left alone: an unread paper is not read just because its day has gone.
-    Idempotent, so it can run on every rerun."""
-    _write("UPDATE tasks SET done_on = day WHERE kind IN (:task, :meeting) "
+    """A meeting whose day is over has happened, so it settles onto that day. A
+    task or paper has not: it was set for a day that has gone, so it comes off
+    that day and goes back on the list, still to do. Idempotent, so it can run
+    on every rerun."""
+    today = date.today().isoformat()
+    _write("UPDATE tasks SET done_on = day WHERE kind = :meeting "
            "AND done_on IS NULL AND day IS NOT NULL AND day < :today",
-           task=TASK, meeting=MEETING, today=date.today().isoformat())
+           meeting=MEETING, today=today)
+    _write("UPDATE tasks SET day = NULL WHERE kind IN (:task, :paper) "
+           "AND done_on IS NULL AND day IS NOT NULL AND day < :today",
+           task=TASK, paper=PAPER, today=today)
 
 
 def meetings_in(first: date, last: date) -> pd.DataFrame:
@@ -511,11 +542,36 @@ def delete_task(task_id: int) -> None:
 
 # --- Projects ---------------------------------------------------------------
 
+def project_items() -> pd.DataFrame:
+    """Everything assigned to a project - tasks, meetings and papers - open ones
+    first, each with the `haystack` its project's search box filters on."""
+    return _read(_ITEM_COLUMNS + _HAYSTACK + _FROM_TASKS
+                 + "WHERE t.project_id IS NOT NULL "
+                 "ORDER BY t.done_on IS NOT NULL, t.id DESC")
+
+
+def project_steps() -> pd.DataFrame:
+    """Every step of every task that belongs to a project."""
+    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM steps s "
+                  "JOIN tasks t ON t.id = s.task_id "
+                  "WHERE t.project_id IS NOT NULL ORDER BY s.task_id, s.id")
+    frame["done"] = frame["done"].astype(bool)
+    return frame
+
+
 def projects() -> pd.DataFrame:
     """Every project, live ones first. Archived ones stay so anything assigned
     to them still shows a name; they are grey and sorted last."""
-    return _read("SELECT id, name, description, colour, archived FROM projects "
-                 "ORDER BY archived, id")
+    return _read("SELECT id, name, description, colour, archived, start_on, "
+                 "end_on FROM projects ORDER BY archived, id")
+
+
+def set_project_dates(project_id: int, start: date | None,
+                      end: date | None) -> None:
+    """When a project runs from and to. Either may be left open."""
+    _write("UPDATE projects SET start_on = :start, end_on = :end WHERE id = :id",
+           start=start.isoformat() if start else None,
+           end=end.isoformat() if end else None, id=project_id)
 
 
 def archive_project(project_id: int) -> None:
@@ -573,17 +629,13 @@ def delete_project(project_id: int) -> None:
         session.commit()
 
 
-# --- Tasks by day -----------------------------------------------------------
+# --- Items by day -----------------------------------------------------------
 
-def tasks_in(first: date, last: date) -> pd.DataFrame:
-    """Tasks filed against each day in the range, as `on_day`: a finished one
-    under the day it was done, an open one under the day it is set for."""
-    return _read("SELECT t.id, t.title, t.day, t.done_on, t.kind, t.description, "
-                 "t.goals, t.notes, t.actions, t.start_time, t.end_time, "
-                 "COALESCE(t.done_on, t.day) AS on_day, "
-                 "p.name AS project, p.colour AS colour, "
-                 + _STEP_COUNTS
-                 + _FROM_TASKS
+def items_in(first: date, last: date) -> pd.DataFrame:
+    """Every kind of item filed against a day in the range, as `on_day`: a
+    finished one under the day it was done, an open one under the day it is set
+    for. A day's card shows them together, so they are read together."""
+    return _read(_ITEMS
                  + "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
                  "ORDER BY t.id",
                  first=first.isoformat(), last=last.isoformat())
@@ -656,7 +708,7 @@ def save_day(day: date, start: time | None, end: time | None,
            "end_time = :end_time, break_hours = :break_hours, "
            "comment = :comment, holiday = :holiday",
            day=day.isoformat(), break_hours=break_hours,
-           comment=comment or None, holiday=int(bool(holiday)),
+           comment=as_bullets(comment) or None, holiday=int(bool(holiday)),
            start_time=start.strftime("%H:%M") if start else None,
            end_time=end.strftime("%H:%M") if end else None)
 
@@ -685,6 +737,16 @@ def all_reviews() -> pd.DataFrame:
                  "ORDER BY week_start, question")
 
 
+#: Asked at the end of each week. Reword them freely; answers already saved keep
+#: the wording they were asked under, since the question is their key.
+REVIEW_QUESTIONS = [
+    "What went well?",
+    "What did not go so well?",
+    "What blocked me?",
+    "What did I learn this week?",
+]
+
+
 def review(week_start: date) -> dict[str, str]:
     """The answers already given for a week, keyed by question."""
     frame = _read("SELECT question, answer FROM reviews WHERE week_start = :week",
@@ -700,5 +762,5 @@ def save_review(week_start: date, answers: dict[str, str]) -> None:
                      "VALUES (:week, :question, :answer) ON CONFLICT "
                      "(week_start, question) DO UPDATE SET answer = :answer"),
                 {"week": week_start.isoformat(), "question": question,
-                 "answer": answer.strip() or None})
+                 "answer": as_bullets(answer) or None})
         session.commit()
