@@ -78,8 +78,16 @@ packaged Streamlit app never touches and strips debug symbols, taking the app
 from 352 MB to 211 MB. Signing comes last on purpose: stripping removes a
 signature, and arm64 macOS kills unsigned code rather than loading it.
 
-`dist/` is git-ignored, so a release is how a build gets out. Draft one on
-GitHub and drag the archive in, and the link at the top picks it up.
+`dist/` is git-ignored, so a release is how a build gets out, and that is
+automatic: push a tag and `.github/workflows/release.yml` builds on a macOS
+runner and attaches both archives to the release, which the link at the top
+then picks up.
+
+```bash
+git tag -a v1.0.1 -m "Planner 1.0.1" && git push origin v1.0.1
+```
+
+The tag sets the version in `Info.plist`. Building locally is only for testing.
 
 ## Changing things
 
