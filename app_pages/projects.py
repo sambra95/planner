@@ -134,8 +134,17 @@ def _card(project) -> None:
                          key=f"parchive:{project.id}"):
                 db.archive_project(project.id)
                 st.rerun()
-        head[2].button("", icon=":material/delete:", key=f"pdrop:{project.id}",
-                       on_click=db.delete_project, args=(project.id,))
+        # Deleting cannot be undone, so it asks first the way archiving does.
+        with head[2].popover("", icon=":material/delete:"):
+            st.markdown(f"**Delete {project.name}?**")
+            st.caption("Everything assigned to it is kept and simply shows as "
+                       "having no project, and its colour goes back into "
+                       "circulation. Archive it instead to keep the grouping. "
+                       "This cannot be undone.")
+            if st.button("Yes, delete it", type="primary",
+                         key=f"pdrop:{project.id}"):
+                db.delete_project(project.id)
+                st.rerun()
 
         about = st.columns([5.8, 1.6, 1.6], vertical_alignment="center")
         about[0].text_input(
