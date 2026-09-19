@@ -14,22 +14,17 @@ from palette import NO_PROJECT, chip_css, strike, style_block
 today = date.today()
 
 
-def _add_task() -> None:
-    db.add_task(st.session_state["new_task"])
-    st.session_state["new_task"] = ""
-
-
 def _toggle_task(task_id: int) -> None:
     """Finishing here files it under today; a day's card uses that day."""
     db.set_task_done(task_id, today if st.session_state[f"done:{task_id}"] else None)
 
 
-st.text_input("New task", key="new_task", placeholder="Add a task…",
-              label_visibility="collapsed", on_change=_add_task)
-
 tasks = db.open_tasks()
 steps = db.open_steps()
 names = [NO_PROJECT] + list(db.projects()["name"])
+
+daycard.add_button(db.TASK, names)
+
 rules = []
 opened = None
 

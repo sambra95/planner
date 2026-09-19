@@ -349,6 +349,15 @@ def _write(sql: str, **params) -> None:
         session.commit()
 
 
+def _insert(sql: str, **params) -> int:
+    """An INSERT, giving back the id of the row it made, so whatever else was
+    filled in can be set on it with the ordinary setters."""
+    with _conn().session as session:
+        row = session.execute(text(sql), params)
+        session.commit()
+        return row.lastrowid
+
+
 # --- Tasks ------------------------------------------------------------------
 
 def open_tasks() -> pd.DataFrame:
@@ -359,11 +368,14 @@ def open_tasks() -> pd.DataFrame:
                    "ORDER BY t.id DESC", kind=TASK)
 
 
-def add_task(title: str) -> None:
-    """Create an open task with nothing else set yet."""
+def add_task(title: str) -> int | None:
+    """Create an open task with nothing else set yet, and give back its id. A
+    blank title makes nothing."""
     if title := title.strip():
-        _write("INSERT INTO tasks (title, created_on) VALUES (:title, :created_on)",
-               title=title, created_on=date.today().isoformat())
+        return _insert("INSERT INTO tasks (title, created_on) "
+                       "VALUES (:title, :created_on)",
+                       title=title, created_on=date.today().isoformat())
+    return None
 
 
 def rename_task(task_id: int, title: str) -> None:
@@ -389,14 +401,15 @@ def set_task_project(task_id: int, project: str | None) -> None:
            id=task_id, project=project)
 
 
-def _add_dated(title: str, day: date | None, kind: str) -> None:
+def _add_dated(title: str, day: date | None, kind: str) -> int | None:
     """Create a meeting or a paper: a titled thing of its kind, on a day or not
-    yet on one."""
+    yet on one. Gives back its id, or None for a blank title."""
     if title := title.strip():
-        _write("INSERT INTO tasks (title, day, created_on, kind) "
-               "VALUES (:title, :day, :created_on, :kind)",
-               title=title, day=day.isoformat() if day else None, kind=kind,
-               created_on=date.today().isoformat())
+        return _insert("INSERT INTO tasks (title, day, created_on, kind) "
+                       "VALUES (:title, :day, :created_on, :kind)",
+                       title=title, day=day.isoformat() if day else None,
+                       kind=kind, created_on=date.today().isoformat())
+    return None
 
 
 def _of_kind(kind: str, first: date, last: date) -> pd.DataFrame:
@@ -409,10 +422,10 @@ def _of_kind(kind: str, first: date, last: date) -> pd.DataFrame:
                  kind=kind, first=first.isoformat(), last=last.isoformat())
 
 
-def add_paper(title: str) -> None:
-    """Add a paper to read. It starts with no day: give it one when you decide
+def add_paper(title: str, day: date | None = None) -> int | None:
+    """Add a paper to read, usually with no day: give it one when you decide
     when to read it, and it joins that day's checklist then."""
-    _add_dated(title, None, PAPER)
+    return _add_dated(title, day, PAPER)
 
 
 def unread_papers() -> pd.DataFrame:
@@ -460,11 +473,10 @@ def move_meeting(meeting_id: int, day: date) -> None:
            done_on=day.isoformat() if day < date.today() else None)
 
 
-def add_meeting(title: str, day: date) -> None:
-    """Create a meeting on a day. Kept off the open task list; made on the
-    Meetings page."""
-    if title := title.strip():
-        _add_dated(title, day, MEETING)
+def add_meeting(title: str, day: date | None) -> int | None:
+    """Create a meeting, normally on a day. Kept off the open task list; made on
+    the Meetings page."""
+    return _add_dated(title, day, MEETING)
 
 
 #: The written sections. A meeting uses all three, a paper only notes. Named
@@ -593,17 +605,20 @@ def restore_project(project_id: int) -> None:
         session.commit()
 
 
-def add_project(name: str) -> None:
-    """Create a project, giving it the next colour no other project holds."""
-    if name := name.strip():
-        with _conn().session as session:
-            used = [row[0] for row in
-                    session.execute(text("SELECT colour FROM projects"))]
-            session.execute(
-                text("INSERT INTO projects (name, description, colour) "
-                     "VALUES (:name, NULL, :colour)"),
-                {"name": name, "colour": next_colour(used)})
-            session.commit()
+def add_project(name: str) -> int | None:
+    """Create a project, giving it the next colour no other project holds, and
+    give back its id. A blank name makes nothing."""
+    if not (name := name.strip()):
+        return None
+    with _conn().session as session:
+        used = [row[0] for row in
+                session.execute(text("SELECT colour FROM projects"))]
+        row = session.execute(
+            text("INSERT INTO projects (name, description, colour) "
+                 "VALUES (:name, NULL, :colour)"),
+            {"name": name, "colour": next_colour(used)})
+        session.commit()
+        return row.lastrowid
 
 
 def rename_project(project_id: int, name: str) -> None:

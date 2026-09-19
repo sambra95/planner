@@ -194,6 +194,16 @@ def label(title: str, name, colour, done: bool = False) -> str:
     return f"{badge(name, colour)} {strike(title, done)}".strip()
 
 
+def select_css(key: str, colour) -> str:
+    """CSS painting one `st.selectbox(key=...)` in the colour of the project it
+    is showing. Two nested divs, as INPUT_CSS fills the same pair."""
+    tint = as_hex(colour)
+    return (f'.{css_class(key)} [data-testid="stSelectbox"] > div, '
+            f'.{css_class(key)} [data-testid="stSelectbox"] > div > div {{ '
+            f'background-color: {_rgba(tint, WASH_ALPHA)} !important; '
+            f'color: {tint} !important; border-color: transparent !important; }}')
+
+
 def style_block(rules: list[str]) -> str:
     """A page's card rules as one style element, empty when there are none."""
     return "<style>" + "\n".join(rules) + "</style>" if rules else ""

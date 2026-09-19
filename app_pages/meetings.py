@@ -48,14 +48,8 @@ month_start = st.session_state.month_start
 default_day = (date.today() if month_start.year == date.today().year
                and month_start.month == date.today().month else month_start)
 
-with st.form("new_meeting", clear_on_submit=True, border=False):
-    fields = st.columns([5, 2, 1], vertical_alignment="center")
-    new_title = fields[0].text_input("Meeting", placeholder="Add a meeting…",
-                                     label_visibility="collapsed")
-    new_day = fields[1].date_input("Day", value=default_day, format="DD/MM/YYYY",
-                                   label_visibility="collapsed")
-    if fields[2].form_submit_button("Add", width="stretch"):
-        db.add_meeting(new_title, new_day)
+names = [NO_PROJECT] + list(db.projects()["name"])
+daycard.add_button(db.MEETING, names, day=default_day)
 
 
 next_month = date(month_start.year + month_start.month // 12,
@@ -108,7 +102,6 @@ if in_month.empty:
 if rules:
     st.html(style_block(rules))
 
-names = [NO_PROJECT] + list(db.projects()["name"])
 if opened is not None:
     daycard.open_item(opened, "cal:", names)
 

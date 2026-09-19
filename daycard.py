@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from palette import NO_PROJECT, chip_css, strike, style_block
+from palette import NO_PROJECT, chip_css, select_css, strike, style_block
 from worktime import (DEFAULT_END, DEFAULT_START, clock, default_break,
                       WEEK_DAYS, field, is_holiday, net, or_default,
                       span, when)
@@ -93,6 +93,25 @@ def _add_step(prefix: str, task_id: int) -> None:
 _MEETING_SECTIONS = (("goals", "Goals"), ("notes", "Notes"),
                      ("actions", "Action points"))
 
+def _draft_step(key: str) -> None:
+    """Hold a step for a task that does not exist yet. It is written when the
+    task is, so closing the box leaves no orphan steps behind."""
+    if title := st.session_state[key + "newstep"].strip():
+        st.session_state[key + "steps"].append(title)
+    st.session_state[key + "newstep"] = ""
+
+
+def _paint_project(key: str, chosen: str | None) -> None:
+    """Show the project box in its project's own colour. Read from the box
+    rather than the item: a dialog keeps the arguments it opened with, so the
+    item's colour would not follow a change made here."""
+    if not chosen or chosen == NO_PROJECT:
+        return
+    colours = db.projects().set_index("name")["colour"]
+    if chosen in colours.index:
+        st.html(style_block([select_css(key, colours[chosen])]))
+
+
 #: Only a task has steps. Papers and meetings are opened without a frame.
 NO_STEPS = pd.DataFrame(columns=["id", "task_id", "title", "done"])
 
@@ -104,12 +123,8 @@ def _dismiss() -> None:
     st.session_state["dismissed_item"] = st.session_state.get("open_item")
 
 
-@st.dialog("On this day", width="large", on_dismiss=_dismiss)
-def open_item(item, prefix: str, names: list[str],
-              steps: pd.DataFrame = NO_STEPS) -> None:
-    """Everything about one item, and everything you can change about it. A
-    dialog is a fragment, so editing here leaves it open. Public, because every
-    page that lists items opens the same editor."""
+def _editor(item, prefix: str, names: list[str], steps: pd.DataFrame) -> None:
+    """Everything about one item, and everything you can change about it."""
     st.session_state["open_item"] = item.id
     if pd.isna(item.done_on):
         st.markdown(f":gray-badge[Open {item.kind}]")
@@ -118,23 +133,33 @@ def open_item(item, prefix: str, names: list[str],
         verb = "Read" if item.kind == db.PAPER else "Completed"
         st.markdown(f":green-badge[{verb} {item.done_on:%a %d %b %Y}]")
 
+    # Laid out as the empty editor a new one is made in: the title on its own,
+    # then project and day, and for a meeting the hours beside them.
     st.text_input("Title", value=item.title, key=f"{prefix}dtitle:{item.id}",
                   on_change=_rename, args=(prefix, item.id))
+    if item.kind == db.MEETING:
+        filed, dated, from_at, to_at = st.columns([3, 1, 1, 1])
+    else:
+        filed, dated = st.columns(2)
 
-    side = st.columns(2)
-    side[0].date_input("Day", value=None if pd.isna(item.on_day)
-                       else item.on_day.date(),
-                       key=f"{prefix}dday:{item.id}", format="DD/MM/YYYY",
-                       on_change=_move, args=(prefix, item.id, item.kind))
-    side[1].selectbox("Project", names, key=f"{prefix}dproject:{item.id}",
-                      index=names.index(item.project)
-                      if item.project in names else 0,
-                      on_change=_set_project, args=(prefix, item.id))
+    project_key = f"{prefix}dproject:{item.id}"
+    filed.selectbox("Project", names, key=project_key,
+                    index=names.index(item.project)
+                    if item.project in names else 0,
+                    on_change=_set_project, args=(prefix, item.id))
+    _paint_project(project_key, st.session_state.get(project_key, item.project))
+    dated.date_input("Day", value=None if pd.isna(item.on_day)
+                     else item.on_day.date(),
+                     key=f"{prefix}dday:{item.id}", format="DD/MM/YYYY",
+                     on_change=_move, args=(prefix, item.id, item.kind))
 
-    st.text_input("Description", key=f"{prefix}dabout:{item.id}",
-                  value="" if pd.isna(item.description) else item.description,
-                  placeholder="Add a description…",
-                  on_change=_set_description, args=(prefix, item.id))
+    # Only a task carries one: a meeting and a paper say what they are in their
+    # write-up and their notes.
+    if item.kind == db.TASK:
+        st.text_input("Description", key=f"{prefix}dabout:{item.id}",
+                      value="" if pd.isna(item.description) else item.description,
+                      placeholder="Add a description…",
+                      on_change=_set_description, args=(prefix, item.id))
 
     if item.kind == db.TASK:
         st.markdown("**Steps**")
@@ -151,13 +176,12 @@ def open_item(item, prefix: str, names: list[str],
                       placeholder="Add a step…", label_visibility="collapsed",
                       on_change=_add_step, args=(prefix, item.id))
     elif item.kind == db.MEETING:
-        times = st.columns(2)
-        times[0].time_input("From", clock(item.start_time), step=900,
-                            key=f"{prefix}dstart:{item.id}", on_change=_set_times,
-                            args=(prefix, item.id))
-        times[1].time_input("To", clock(item.end_time), step=900,
-                            key=f"{prefix}dend:{item.id}", on_change=_set_times,
-                            args=(prefix, item.id))
+        from_at.time_input("From", clock(item.start_time), step=900,
+                           key=f"{prefix}dstart:{item.id}", on_change=_set_times,
+                           args=(prefix, item.id))
+        to_at.time_input("To", clock(item.end_time), step=900,
+                         key=f"{prefix}dend:{item.id}", on_change=_set_times,
+                         args=(prefix, item.id))
         for field, label in _MEETING_SECTIONS:
             st.text_area(label, key=f"{prefix}d{field}:{item.id}", height=130,
                          value="" if pd.isna(getattr(item, field))
@@ -191,7 +215,7 @@ def open_item(item, prefix: str, names: list[str],
                      key=f"{prefix}dclear:{item.id}"):
             _clear_day(item.id)
             st.rerun(scope="app")
-    elif item.kind in (db.TASK, db.PAPER):
+    elif not pd.isna(item.done_on):
         # Finished, but not really: this puts it back where it came from, the
         # day it was filed under along with it.
         back = ("reading list" if item.kind == db.PAPER else "task list")
@@ -199,6 +223,146 @@ def open_item(item, prefix: str, names: list[str],
                      key=f"{prefix}dundo:{item.id}"):
             db.set_task_done(item.id, None)
             st.rerun(scope="app")
+
+
+#: What each kind is called where a new one is being made.
+_KIND_NAMES = {db.TASK: "task", db.MEETING: "meeting", db.PAPER: "paper"}
+
+
+@st.dialog("Add task", width="large")
+def _new_task(kind, names, day):
+    _new(kind, names, day)
+
+
+@st.dialog("Add meeting", width="large")
+def _new_meeting(kind, names, day):
+    _new(kind, names, day)
+
+
+@st.dialog("Add paper", width="large")
+def _new_paper(kind, names, day):
+    _new(kind, names, day)
+
+
+def add_button(kind: str, names: list[str], day: date | None = None) -> None:
+    """The button that opens an empty editor for a new item of `kind`. Opening
+    it drops whatever was typed into a previous one and abandoned, so it always
+    starts blank."""
+    if st.button(f"Add {_KIND_NAMES[kind]}", icon=":material/add:",
+                 width="stretch", key=f"open_new_{kind}"):
+        forget_draft(f"new_{kind}_")
+        {db.TASK: _new_task, db.MEETING: _new_meeting,
+         db.PAPER: _new_paper}[kind](kind, names, day)
+
+
+def forget_draft(prefix: str) -> None:
+    """Clear the fields of an editor for something that was never made. Safe
+    here: the widgets it names belong to a run that is over."""
+    for key in [key for key in st.session_state if key.startswith(prefix)]:
+        del st.session_state[key]
+
+
+def _new(kind: str, names: list[str], day: date | None) -> None:
+    """A new item of `kind`, laid out like the editor that opens on an existing
+    one but with every field empty. Nothing is written until Add is pressed, so
+    a half-filled box that is closed leaves nothing behind."""
+    what = _KIND_NAMES[kind]
+    key = f"new_{kind}_"
+
+    # The title on its own, then project and day, and for a meeting the hours
+    # beside them, so every kind reads the same way.
+    title = st.text_input("Title", key=key + "title", placeholder=f"The {what}…")
+    if kind == db.MEETING:
+        filed, dated, from_at, to_at = st.columns([3, 1, 1, 1])
+    else:
+        filed, dated = st.columns(2)
+
+    project = filed.selectbox("Project", names, key=key + "project")
+    _paint_project(key + "project", project)
+    # A meeting lives on its day, so it starts on one rather than nowhere.
+    when = dated.date_input("Day", value=day, key=key + "day",
+                            format="DD/MM/YYYY")
+    description = ("" if kind != db.TASK else
+                   st.text_input("Description", key=key + "about",
+                                 placeholder="Add a description…"))
+
+    times, notes = (None, None), {}
+    if kind == db.MEETING:
+        times = (from_at.time_input("From", value=None, step=900,
+                                    key=key + "start"),
+                 to_at.time_input("To", value=None, step=900, key=key + "end"))
+        for field, label in _MEETING_SECTIONS:
+            notes[field] = st.text_area(label, height=130, key=key + field,
+                                        placeholder=f"{label}…")
+    elif kind == db.PAPER:
+        tags = st.text_input("Tags", key=key + "tags",
+                             placeholder="Keywords, separated by commas…")
+        notes["notes"] = st.text_area("Notes", height=180, key=key + "notes")
+    elif kind == db.TASK:
+        st.markdown("**Steps**")
+        drafted = st.session_state.setdefault(key + "steps", [])
+        for index, step in enumerate(drafted):
+            row = st.columns([9, 0.6], vertical_alignment="center")
+            row[0].markdown(step)
+            row[1].button("", icon=":material/close:",
+                          key=f"{key}dropstep:{index}",
+                          on_click=drafted.pop, args=(index,))
+        st.text_input("New step", key=key + "newstep", placeholder="Add a step…",
+                      label_visibility="collapsed", on_change=_draft_step,
+                      args=(key,))
+
+    if not st.button(f"Add {what}", type="primary", width="stretch",
+                     key=key + "submit"):
+        return
+    if not title.strip():
+        st.error("A title is needed. Everything else can wait.")
+        return
+
+    # Made first, then filled in: the setters the editor uses take an id.
+    new_id = (db.add_meeting(title, when) if kind == db.MEETING
+              else db.add_paper(title, when) if kind == db.PAPER
+              else db.add_task(title))
+    if kind == db.TASK and when:
+        db.set_task_day(new_id, when)
+    if project != NO_PROJECT:
+        db.set_task_project(new_id, project)
+    if description.strip():
+        db.set_task_description(new_id, description)
+    if kind == db.MEETING and any(times):
+        db.set_meeting_times(new_id, *times)
+    if kind == db.PAPER and tags.strip():
+        db.set_task_tags(new_id, tags)
+    for field, written in notes.items():
+        if written.strip():
+            db.set_task_note(new_id, field, written)
+    for step in st.session_state.get(key + "steps", []):
+        db.add_step(new_id, step)
+    st.rerun(scope="app")
+
+
+#: A dialog takes its title when it is decorated, so each kind gets its own.
+@st.dialog("Task", width="large", on_dismiss=_dismiss)
+def _open_task(item, prefix, names, steps):
+    _editor(item, prefix, names, steps)
+
+
+@st.dialog("Meeting", width="large", on_dismiss=_dismiss)
+def _open_meeting(item, prefix, names, steps):
+    _editor(item, prefix, names, steps)
+
+
+@st.dialog("Paper", width="large", on_dismiss=_dismiss)
+def _open_paper(item, prefix, names, steps):
+    _editor(item, prefix, names, steps)
+
+
+def open_item(item, prefix: str, names: list[str],
+              steps: pd.DataFrame = NO_STEPS) -> None:
+    """The editor for one item, titled with what it is. Public, because every
+    page that lists items opens the same one."""
+    opener = {db.TASK: _open_task, db.MEETING: _open_meeting,
+              db.PAPER: _open_paper}[item.kind]
+    opener(item, prefix, names, steps)
 
 
 def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,

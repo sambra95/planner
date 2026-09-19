@@ -18,15 +18,11 @@ def _mark_read(paper_id: int) -> None:
                      st.session_state[f"paper_read:{paper_id}"] else None)
 
 
-with st.form("new_paper", clear_on_submit=True, border=False):
-    fields = st.columns([8, 1], vertical_alignment="center")
-    new_paper = fields[0].text_input("Paper", placeholder="Add a paper…",
-                                     label_visibility="collapsed")
-    if fields[1].form_submit_button("Add", width="stretch"):
-        db.add_paper(new_paper)
-
 papers = db.unread_papers()
 names = [NO_PROJECT] + list(db.projects()["name"])
+
+daycard.add_button(db.PAPER, names)
+
 rules = []
 opened = None
 
