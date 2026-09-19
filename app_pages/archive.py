@@ -45,7 +45,7 @@ end = start + timedelta(days=6)
 # `days` already holds every day, so the chosen week is a filter, not a query.
 daycard.render_week(start, {row["day"].date(): row
                             for _, row in days[days["week"] == chosen].iterrows()},
-                    db.items_in(start, end), db.steps_in(start, end),
+                    db.items_in(start, end), db.milestones_in(start, end),
                     prefix="archive:")
 
 st.divider()

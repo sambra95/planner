@@ -1,5 +1,5 @@
 """Papers: what is still to read, then everything read, searchable by title,
-tag, note or project. A paper has no steps, just notes and keyword tags, and
+tag, note or project. A paper has no milestones, just notes and tags, and
 opens the same editor a task does."""
 
 from datetime import date

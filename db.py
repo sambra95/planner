@@ -37,7 +37,7 @@ _DATE_COLUMNS = ("day", "done_on", "on_day", "created_on", "week_start",
                  "start_on", "end_on")
 
 #: What a row in `tasks` is. They share a table, and differ in what hangs off
-#: them: steps for a task, notes for the other two.
+#: them: milestones for a task, notes for the other two.
 TASK = "task"
 MEETING = "meeting"
 PAPER = "paper"
@@ -62,10 +62,11 @@ _ADDED_COLUMNS = {
 #: Every item query joins a row to its project; they share the wording.
 _FROM_TASKS = " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
 
-#: Step totals for a task, as two columns, in one statement.
-_STEP_COUNTS = ("(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id) AS steps, "
-                "(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id AND s.done = 1) "
-                "AS steps_done")
+#: Milestone totals for a task, as two columns, in one statement.
+_MILESTONE_COUNTS = (
+    "(SELECT COUNT(*) FROM milestones m WHERE m.task_id = t.id) AS milestones, "
+    "(SELECT COUNT(*) FROM milestones m WHERE m.task_id = t.id AND m.done = 1) "
+    "AS milestones_done")
 
 #: Everything an item's card and editor read, whatever kind the item is. One
 #: list, so a task, meeting or paper arrives in the same shape wherever it is
@@ -73,7 +74,7 @@ _STEP_COUNTS = ("(SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id) AS steps,
 _ITEM_COLUMNS = ("SELECT t.id, t.title, t.day, t.done_on, t.kind, t.description, "
                  "t.goals, t.notes, t.actions, t.tags, t.start_time, t.end_time, "
                  "COALESCE(t.done_on, t.day) AS on_day, "
-                 "p.name AS project, p.colour AS colour, " + _STEP_COUNTS)
+                 "p.name AS project, p.colour AS colour, " + _MILESTONE_COUNTS)
 
 #: What a project's search box matches on, lowered here so the box can filter
 #: its own rows without going back to the database.
@@ -109,16 +110,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     end_time    TEXT,
     tags        TEXT
 );
-CREATE TABLE IF NOT EXISTS steps (
+CREATE TABLE IF NOT EXISTS milestones (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
     title   TEXT NOT NULL,
     done    INTEGER NOT NULL DEFAULT 0
 );
--- Every task query counts its steps with a correlated subquery. Without this,
--- each one scans the whole table. No semicolons in here: _create_tables splits
--- the schema on them.
-CREATE INDEX IF NOT EXISTS steps_by_task ON steps(task_id);
+-- Every task query counts its milestones with a correlated subquery. Without
+-- this, each one scans the whole table. No semicolons in here: _create_tables
+-- splits the schema on them.
+CREATE INDEX IF NOT EXISTS milestones_by_task ON milestones(task_id);
 CREATE TABLE IF NOT EXISTS days (
     day         DATE PRIMARY KEY,
     start_time  TEXT,
@@ -136,10 +137,31 @@ CREATE TABLE IF NOT EXISTS reviews (
 """
 
 
+#: Tables that have changed name, old to new.
+_RENAMED_TABLES = {"steps": "milestones"}
+
+
+def _rename_tables(connection) -> None:
+    """Take a database written before a table was renamed to the name it goes by
+    now. This runs before the schema: CREATE TABLE IF NOT EXISTS would otherwise
+    make an empty table under the new name and leave every row behind under the
+    old one. The index goes too - SQLite carries it over under its old name, and
+    the schema makes it again under the new one. Idempotent."""
+    present = set(inspect(connection.engine).get_table_names())
+    for old_name, new_name in _RENAMED_TABLES.items():
+        if old_name in present and new_name not in present:
+            with connection.session as session:
+                session.execute(
+                    text(f"ALTER TABLE {old_name} RENAME TO {new_name}"))
+                session.execute(text(f"DROP INDEX IF EXISTS {old_name}_by_task"))
+                session.commit()
+
+
 @st.cache_resource(show_spinner=False)
 def _create_tables(_connection) -> None:
     """Create anything missing, once per session. The argument is underscored so
     Streamlit caches on the call rather than trying to hash the connection."""
+    _rename_tables(_connection)
     with _connection.session as session:
         for statement in _SCHEMA.strip().split(";"):
             if statement.strip():
@@ -227,7 +249,7 @@ def snapshot() -> bytes:
 
 
 #: What a file has to contain before it is treated as a Planner backup.
-_TABLES = ("tasks", "steps", "days", "projects", "reviews")
+_TABLES = ("tasks", "milestones", "days", "projects", "reviews")
 
 
 @contextmanager
@@ -277,7 +299,7 @@ def restore(data: bytes) -> None:
 _SAME_ITEM = ("t.kind = b.kind AND t.title = b.title "
               "AND IFNULL(t.day, '') = IFNULL(b.day, '')")
 
-#: Added on a merge, in order: a task needs its project, a step needs its task.
+#: Added on a merge, in order: a task needs its project, a milestone its task.
 _MERGES = (
     ("projects", """
         INSERT INTO projects (name, description, colour, archived)
@@ -304,14 +326,15 @@ _MERGES = (
                b.start_time, b.end_time
         FROM backup.tasks b
         WHERE NOT EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})"""),
-    ("steps", f"""
-        INSERT INTO steps (task_id, title, done)
+    ("milestones", f"""
+        INSERT INTO milestones (task_id, title, done)
         SELECT (SELECT t.id FROM main.tasks t WHERE {_SAME_ITEM} LIMIT 1),
                s.title, s.done
-        FROM backup.steps s JOIN backup.tasks b ON b.id = s.task_id
+        FROM backup.milestones s JOIN backup.tasks b ON b.id = s.task_id
         WHERE EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})
           AND NOT EXISTS (
-              SELECT 1 FROM main.steps ms JOIN main.tasks t ON t.id = ms.task_id
+              SELECT 1 FROM main.milestones ms
+                JOIN main.tasks t ON t.id = ms.task_id
               WHERE {_SAME_ITEM} AND ms.title = s.title)"""),
 )
 
@@ -545,9 +568,10 @@ def meetings_in(first: date, last: date) -> pd.DataFrame:
 
 
 def delete_task(task_id: int) -> None:
-    """Remove a task and the steps under it."""
+    """Remove a task and the milestones under it."""
     with _conn().session as session:
-        session.execute(text("DELETE FROM steps WHERE task_id = :id"), {"id": task_id})
+        session.execute(text("DELETE FROM milestones WHERE task_id = :id"),
+                        {"id": task_id})
         session.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task_id})
         session.commit()
 
@@ -560,15 +584,6 @@ def project_items() -> pd.DataFrame:
     return _read(_ITEM_COLUMNS + _HAYSTACK + _FROM_TASKS
                  + "WHERE t.project_id IS NOT NULL "
                  "ORDER BY t.done_on IS NOT NULL, t.id DESC")
-
-
-def project_steps() -> pd.DataFrame:
-    """Every step of every task that belongs to a project."""
-    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM steps s "
-                  "JOIN tasks t ON t.id = s.task_id "
-                  "WHERE t.project_id IS NOT NULL ORDER BY s.task_id, s.id")
-    frame["done"] = frame["done"].astype(bool)
-    return frame
 
 
 def projects() -> pd.DataFrame:
@@ -662,12 +677,12 @@ def set_task_done(task_id: int, day: date | None) -> None:
            id=task_id, done_on=day.isoformat() if day else None)
 
 
-# --- Steps ------------------------------------------------------------------
+# --- Milestones --------------------------------------------------------------
 
-def open_steps() -> pd.DataFrame:
-    """Every step of every open task, in one query; the task list groups them.
-    Asking per task would be a round trip each, on every rerun."""
-    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM steps s "
+def open_milestones() -> pd.DataFrame:
+    """Every milestone of every open task, in one query; the task list groups
+    them. Asking per task would be a round trip each, on every rerun."""
+    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM milestones s "
                   "JOIN tasks t ON t.id = s.task_id "
                   "WHERE t.done_on IS NULL AND t.kind = :kind "
                   "ORDER BY s.task_id, s.id", kind=TASK)
@@ -675,9 +690,19 @@ def open_steps() -> pd.DataFrame:
     return frame
 
 
-def steps_in(first: date, last: date) -> pd.DataFrame:
-    """Every step of every task filed against a day in the range."""
-    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM steps s "
+def task_milestones(task_id: int) -> pd.DataFrame:
+    """One task's milestones, read fresh. The editor opens as a dialog and is
+    handed the same frame back on every rerun, so it asks again rather than
+    showing the list as it stood when it opened."""
+    frame = _read("SELECT id, task_id, title, done FROM milestones "
+                  "WHERE task_id = :task_id ORDER BY id", task_id=task_id)
+    frame["done"] = frame["done"].astype(bool)
+    return frame
+
+
+def milestones_in(first: date, last: date) -> pd.DataFrame:
+    """Every milestone of every task filed against a day in the range."""
+    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM milestones s "
                   "JOIN tasks t ON t.id = s.task_id "
                   "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
                   "ORDER BY s.task_id, s.id",
@@ -686,21 +711,22 @@ def steps_in(first: date, last: date) -> pd.DataFrame:
     return frame
 
 
-def add_step(task_id: int, title: str) -> None:
-    """Add a step to a task. A step never changes its task's own state."""
+def add_milestone(task_id: int, title: str) -> None:
+    """Add a milestone to a task. It never changes the task's own state."""
     if title := title.strip():
-        _write("INSERT INTO steps (task_id, title, done) VALUES (:task_id, :title, 0)",
-               task_id=task_id, title=title)
+        _write("INSERT INTO milestones (task_id, title, done) "
+               "VALUES (:task_id, :title, 0)", task_id=task_id, title=title)
 
 
-def delete_step(step_id: int) -> None:
-    _write("DELETE FROM steps WHERE id = :id", id=step_id)
+def delete_milestone(milestone_id: int) -> None:
+    _write("DELETE FROM milestones WHERE id = :id", id=milestone_id)
 
 
-def set_step_done(step_id: int, done: bool) -> None:
-    """Tick one step off, or untick it. Never touches the task's own state."""
-    _write("UPDATE steps SET done = :done WHERE id = :id",
-           id=step_id, done=int(bool(done)))
+def set_milestone_done(milestone_id: int, done: bool) -> None:
+    """Tick one milestone off, or untick it. Never touches the task's own
+    state."""
+    _write("UPDATE milestones SET done = :done WHERE id = :id",
+           id=milestone_id, done=int(bool(done)))
 
 
 # --- Days -------------------------------------------------------------------
@@ -740,7 +766,7 @@ def all_days() -> pd.DataFrame:
 def completed_tasks() -> pd.DataFrame:
     """Every finished task, under the day it was finished."""
     return _read("SELECT t.id, t.title, t.day, t.done_on, p.name AS project, "
-                 "p.colour AS colour, " + _STEP_COUNTS
+                 "p.colour AS colour, " + _MILESTONE_COUNTS
                  + _FROM_TASKS
                  + "WHERE t.done_on IS NOT NULL ORDER BY t.done_on, t.id")
 

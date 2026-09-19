@@ -1,5 +1,5 @@
 """Tasks: everything still to do. A task is finished only by its own checkbox;
-ticking every step under it changes nothing. Each one opens the same editor a
+ticking every milestone under it changes nothing. Each one opens the same editor a
 day card uses, so a task reads the same wherever you meet it."""
 
 from datetime import date
@@ -20,7 +20,7 @@ def _toggle_task(task_id: int) -> None:
 
 
 tasks = db.open_tasks()
-steps = db.open_steps()
+milestones = db.open_milestones()
 names = [NO_PROJECT] + list(db.projects()["name"])
 
 daycard.add_button(db.TASK, names)
@@ -32,7 +32,7 @@ if tasks.empty:
     st.caption("Nothing open.")
 
 for task in tasks.itertuples():
-    own = steps[steps["task_id"] == task.id]
+    own = milestones[milestones["task_id"] == task.id]
     tally = f" ({int(own['done'].sum())}/{len(own)})" if len(own) else ""
     day = "" if pd.isna(task.day) else f" · {task.day:%a %d %b}"
     if not pd.isna(task.colour):
@@ -53,4 +53,4 @@ if rules:
     st.html(style_block(rules))
 
 if opened is not None:
-    daycard.open_item(opened, "tasks:", names, steps)
+    daycard.open_item(opened, "tasks:", names)

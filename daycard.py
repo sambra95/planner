@@ -1,6 +1,6 @@
 """One day's card, and a week of them, shared by My Week and the archive.
 
-The checklist is a tick and a name; description, steps and notes open in a
+The checklist is a tick and a name; description, milestones and notes open in a
 dialog. Widget keys are prefixed per page so the same day rendered twice does
 not collide in Session State.
 """
@@ -34,9 +34,10 @@ def _toggle_task(prefix: str, task_id: int, day: date) -> None:
     db.set_task_done(task_id, day if done else None)
 
 
-def _toggle_step(prefix: str, step_id: int) -> None:
-    """A step stands alone: ticking it never finishes the task above it."""
-    db.set_step_done(step_id, st.session_state[f"{prefix}step:{step_id}"])
+def _toggle_milestone(prefix: str, milestone_id: int) -> None:
+    """A milestone stands alone: ticking it never finishes the task above it."""
+    db.set_milestone_done(
+        milestone_id, st.session_state[f"{prefix}dmilestone:{milestone_id}"])
 
 
 def _clear_day(task_id: int) -> None:
@@ -84,21 +85,38 @@ def _set_note(prefix: str, task_id: int, field: str) -> None:
                      st.session_state[f"{prefix}d{field}:{task_id}"])
 
 
-def _add_step(prefix: str, task_id: int) -> None:
-    db.add_step(task_id, st.session_state[f"{prefix}dnewstep:{task_id}"])
-    st.session_state[f"{prefix}dnewstep:{task_id}"] = ""
+def _add_milestone(prefix: str, task_id: int) -> None:
+    db.add_milestone(task_id, st.session_state[f"{prefix}dnewmilestone:{task_id}"])
+    st.session_state[f"{prefix}dnewmilestone:{task_id}"] = ""
+
+
+#: How many milestones a card shows before the list starts scrolling, and what
+#: one row of it stands. The height is a little over the rows shown, so the next
+#: one peeks out and says there is more below.
+_MILESTONES_SHOWN = 5
+_MILESTONE_ROW = 42
+
+
+def _milestone_box(count: int):
+    """The frame the milestones are listed in. A short list simply takes the room
+    it needs; a long one is capped and scrolls inside the card, so the box to add
+    one and the buttons under it stay where they are."""
+    if count <= _MILESTONES_SHOWN:
+        return st.container()
+    return st.container(
+        height=_MILESTONES_SHOWN * _MILESTONE_ROW + _MILESTONE_ROW // 2)
 
 
 #: What a meeting is written up under. A paper just has the one box.
 _MEETING_SECTIONS = (("goals", "Goals"), ("notes", "Notes"),
                      ("actions", "Action points"))
 
-def _draft_step(key: str) -> None:
-    """Hold a step for a task that does not exist yet. It is written when the
-    task is, so closing the box leaves no orphan steps behind."""
-    if title := st.session_state[key + "newstep"].strip():
-        st.session_state[key + "steps"].append(title)
-    st.session_state[key + "newstep"] = ""
+def _draft_milestone(key: str) -> None:
+    """Hold a milestone for a task that does not exist yet. It is written when
+    the task is, so closing the box leaves no orphans behind."""
+    if title := st.session_state[key + "newmilestone"].strip():
+        st.session_state[key + "milestones"].append(title)
+    st.session_state[key + "newmilestone"] = ""
 
 
 def _paint_project(key: str, chosen: str | None) -> None:
@@ -112,10 +130,6 @@ def _paint_project(key: str, chosen: str | None) -> None:
         st.html(style_block([select_css(key, colours[chosen])]))
 
 
-#: Only a task has steps. Papers and meetings are opened without a frame.
-NO_STEPS = pd.DataFrame(columns=["id", "task_id", "title", "done"])
-
-
 def _dismiss() -> None:
     """Remember what was closed. A table's selection outlives the dialog it
     opened, so without this the dialog reopens the moment it is dismissed; a
@@ -123,7 +137,7 @@ def _dismiss() -> None:
     st.session_state["dismissed_item"] = st.session_state.get("open_item")
 
 
-def _editor(item, prefix: str, names: list[str], steps: pd.DataFrame) -> None:
+def _editor(item, prefix: str, names: list[str]) -> None:
     """Everything about one item, and everything you can change about it."""
     st.session_state["open_item"] = item.id
     if pd.isna(item.done_on):
@@ -162,19 +176,26 @@ def _editor(item, prefix: str, names: list[str], steps: pd.DataFrame) -> None:
                       on_change=_set_description, args=(prefix, item.id))
 
     if item.kind == db.TASK:
-        st.markdown("**Steps**")
-        own = steps[steps["task_id"] == item.id]
-        for step in own.itertuples():
-            row = st.columns([9, 0.6], vertical_alignment="center")
-            row[0].checkbox(strike(step.title, bool(step.done)),
-                            value=bool(step.done), key=f"{prefix}dstep:{step.id}",
-                            on_change=_toggle_step, args=(prefix, step.id))
-            row[1].button("", icon=":material/close:",
-                          key=f"{prefix}ddropstep:{step.id}",
-                          on_click=db.delete_step, args=(step.id,))
-        st.text_input("New step", key=f"{prefix}dnewstep:{item.id}",
-                      placeholder="Add a step…", label_visibility="collapsed",
-                      on_change=_add_step, args=(prefix, item.id))
+        st.markdown("**Milestones**")
+        # Read again rather than trusting the frame the dialog opened with: a
+        # dialog is a fragment and is handed its arguments back on every rerun,
+        # so adding or dropping one would not show until the page ran again.
+        own = db.task_milestones(item.id)
+        with _milestone_box(len(own)):
+            for milestone in own.itertuples():
+                row = st.columns([9, 0.6], vertical_alignment="center")
+                row[0].checkbox(strike(milestone.title, bool(milestone.done)),
+                                value=bool(milestone.done),
+                                key=f"{prefix}dmilestone:{milestone.id}",
+                                on_change=_toggle_milestone,
+                                args=(prefix, milestone.id))
+                row[1].button("", icon=":material/close:",
+                              key=f"{prefix}ddropmilestone:{milestone.id}",
+                              on_click=db.delete_milestone, args=(milestone.id,))
+        st.text_input("New milestone", key=f"{prefix}dnewmilestone:{item.id}",
+                      placeholder="Add a milestone…",
+                      label_visibility="collapsed",
+                      on_change=_add_milestone, args=(prefix, item.id))
     elif item.kind == db.MEETING:
         from_at.time_input("From", clock(item.start_time), step=900,
                            key=f"{prefix}dstart:{item.id}", on_change=_set_times,
@@ -299,16 +320,18 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
                              placeholder="Keywords, separated by commas…")
         notes["notes"] = st.text_area("Notes", height=180, key=key + "notes")
     elif kind == db.TASK:
-        st.markdown("**Steps**")
-        drafted = st.session_state.setdefault(key + "steps", [])
-        for index, step in enumerate(drafted):
-            row = st.columns([9, 0.6], vertical_alignment="center")
-            row[0].markdown(step)
-            row[1].button("", icon=":material/close:",
-                          key=f"{key}dropstep:{index}",
-                          on_click=drafted.pop, args=(index,))
-        st.text_input("New step", key=key + "newstep", placeholder="Add a step…",
-                      label_visibility="collapsed", on_change=_draft_step,
+        st.markdown("**Milestones**")
+        drafted = st.session_state.setdefault(key + "milestones", [])
+        with _milestone_box(len(drafted)):
+            for index, milestone in enumerate(drafted):
+                row = st.columns([9, 0.6], vertical_alignment="center")
+                row[0].markdown(milestone)
+                row[1].button("", icon=":material/close:",
+                              key=f"{key}dropmilestone:{index}",
+                              on_click=drafted.pop, args=(index,))
+        st.text_input("New milestone", key=key + "newmilestone",
+                      placeholder="Add a milestone…",
+                      label_visibility="collapsed", on_change=_draft_milestone,
                       args=(key,))
 
     if not st.button(f"Add {what}", type="primary", width="stretch",
@@ -335,38 +358,37 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
     for field, written in notes.items():
         if written.strip():
             db.set_task_note(new_id, field, written)
-    for step in st.session_state.get(key + "steps", []):
-        db.add_step(new_id, step)
+    for milestone in st.session_state.get(key + "milestones", []):
+        db.add_milestone(new_id, milestone)
     st.rerun(scope="app")
 
 
 #: A dialog takes its title when it is decorated, so each kind gets its own.
 @st.dialog("Task", width="large", on_dismiss=_dismiss)
-def _open_task(item, prefix, names, steps):
-    _editor(item, prefix, names, steps)
+def _open_task(item, prefix, names):
+    _editor(item, prefix, names)
 
 
 @st.dialog("Meeting", width="large", on_dismiss=_dismiss)
-def _open_meeting(item, prefix, names, steps):
-    _editor(item, prefix, names, steps)
+def _open_meeting(item, prefix, names):
+    _editor(item, prefix, names)
 
 
 @st.dialog("Paper", width="large", on_dismiss=_dismiss)
-def _open_paper(item, prefix, names, steps):
-    _editor(item, prefix, names, steps)
+def _open_paper(item, prefix, names):
+    _editor(item, prefix, names)
 
 
-def open_item(item, prefix: str, names: list[str],
-              steps: pd.DataFrame = NO_STEPS) -> None:
+def open_item(item, prefix: str, names: list[str]) -> None:
     """The editor for one item, titled with what it is. Public, because every
     page that lists items opens the same one."""
     opener = {db.TASK: _open_task, db.MEETING: _open_meeting,
               db.PAPER: _open_paper}[item.kind]
-    opener(item, prefix, names, steps)
+    opener(item, prefix, names)
 
 
-def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
-               prefix: str, rules: list[str]):
+def render_day(day: date, record, tasks: pd.DataFrame,
+               milestones: pd.DataFrame, prefix: str, rules: list[str]):
     """One day's card. Returns the item whose name was clicked, if any."""
     opened = None
     with st.container(border=True):
@@ -412,8 +434,8 @@ def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
 
         for item in tasks.itertuples():
             done = not pd.isna(item.done_on)
-            own = (steps[steps["task_id"] == item.id] if item.kind == db.TASK
-                   else steps.iloc[0:0])
+            own = (milestones[milestones["task_id"] == item.id]
+                   if item.kind == db.TASK else milestones.iloc[0:0])
             tally = f" ({int(own['done'].sum())}/{len(own)})" if len(own) else ""
             if not pd.isna(item.colour):
                 rules.append(chip_css(f"{prefix}open:{item.id}", item.colour))
@@ -438,14 +460,14 @@ def render_day(day: date, record, tasks: pd.DataFrame, steps: pd.DataFrame,
 
 
 def render_week(week_start: date, records: dict, tasks: pd.DataFrame,
-                steps: pd.DataFrame, prefix: str = "") -> None:
+                milestones: pd.DataFrame, prefix: str = "") -> None:
     """Monday to Friday side by side, with the weekend in an expander."""
     opened, rules = None, []
 
     def card(day: date):
         return render_day(day, records.get(day, {}),
-                          tasks[tasks["on_day"] == pd.Timestamp(day)], steps,
-                          prefix, rules)
+                          tasks[tasks["on_day"] == pd.Timestamp(day)],
+                          milestones, prefix, rules)
 
     for column, offset in zip(st.columns(5), range(5)):
         with column:
@@ -459,5 +481,4 @@ def render_week(week_start: date, records: dict, tasks: pd.DataFrame,
     if rules:
         st.html(style_block(rules))
     if opened is not None:
-        open_item(opened, prefix, [NO_PROJECT] + list(db.projects()["name"]),
-                  steps)
+        open_item(opened, prefix, [NO_PROJECT] + list(db.projects()["name"]))

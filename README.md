@@ -22,15 +22,15 @@ rather than notarised. Apple silicon only.
   day for each weekday marked as holiday. Click anything on a day to open and
   edit it, or take it off the day without deleting it.
 - **Tasks** - everything still to do, newest first. Each task is one card with
-  its project, day, optional description and steps. Steps are independent:
-  ticking them all does not finish the task, and only the task's own checkbox
-  decides the day it is archived under. A task still open when its day passes
+  its project, day, optional description and milestones. Milestones are
+  independent: ticking them all does not finish the task, and only the task's
+  own checkbox decides the day it is archived under. A task still open when its day passes
   comes off that day and goes back on the list.
 - **Meetings** - a month calendar. Each meeting sits on its day in its project's
   colour, with optional start and finish times; click one to write it up under
   Goals, Notes and Action points. Taking a meeting off its day calls it off.
 - **Papers** - added here and kept off the task list. A paper starts with no day
-  and has no steps, just notes and keyword tags. Tick it off once read and it
+  and has no milestones, just notes and keyword tags. Tick it off once read and it
   goes to the archive, where the tags make it findable.
 - **Review** - four questions at the end of each week, with a reminder on the
   last working day that is not a holiday.

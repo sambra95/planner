@@ -27,7 +27,7 @@ week_end = week_start + timedelta(days=6)
 days = db.days_in(week_start, week_end)
 records = {row["day"].date(): row for _, row in days.iterrows()}
 tasks = db.items_in(week_start, week_end)
-steps = db.steps_in(week_start, week_end)
+milestones = db.milestones_in(week_start, week_end)
 
 with st.container(horizontal=True, vertical_alignment="center"):
     st.button("Previous", icon=":material/chevron_left:", on_click=_shift, args=(-1,))
@@ -48,4 +48,4 @@ metrics[2].metric("Overtime", f"{overtime:+.1f} h", border=True,
                        + (f" ({WEEK_HOURS:g} h, less any holiday)."
                           if owed != WEEK_HOURS else "."))
 
-daycard.render_week(week_start, records, tasks, steps, prefix="week:")
+daycard.render_week(week_start, records, tasks, milestones, prefix="week:")

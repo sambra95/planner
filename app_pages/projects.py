@@ -55,7 +55,6 @@ if st.button("Add project", icon=":material/add:", width="stretch"):
 projects = db.projects()
 live = projects[projects["archived"] == 0]
 items = db.project_items()
-steps = db.project_steps()
 mine = {name: frame for name, frame in items.groupby("project")}
 names = [NO_PROJECT] + list(live["name"])
 rules = []
@@ -197,4 +196,4 @@ if rules:
     st.html(style_block(rules))
 
 if opened is not None:
-    daycard.open_item(opened, "proj:", names, steps)
+    daycard.open_item(opened, "proj:", names)
