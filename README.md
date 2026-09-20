@@ -31,7 +31,9 @@ tab.
 - **Tasks** - everything still to do, newest first. Each task is one card with
   its project, day, optional description and milestones. Milestones are
   independent: ticking them all does not finish the task, and only the task's
-  own checkbox decides the day it is archived under. A task still open when its day passes
+  own checkbox decides the day it is archived under. A milestone is ticked off
+  on a day of its own, and that day's card records it however long the task
+  itself stays open. A task still open when its day passes
   comes off that day and goes back on the list.
 - **Meetings** - a month calendar. Each meeting sits on its day in its project's
   colour, with optional start and finish times; click one to write it up under

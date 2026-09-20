@@ -34,10 +34,11 @@ def _toggle_task(prefix: str, task_id: int, day: date) -> None:
     db.set_task_done(task_id, day if done else None)
 
 
-def _toggle_milestone(prefix: str, milestone_id: int) -> None:
-    """A milestone stands alone: ticking it never finishes the task above it."""
-    db.set_milestone_done(
-        milestone_id, st.session_state[f"{prefix}dmilestone:{milestone_id}"])
+def _toggle_milestone(key: str, milestone_id: int, day: date) -> None:
+    """A milestone stands alone: ticking it files it under `day` and leaves the
+    task open, on the list and wherever it already sat. `key` is the box that
+    was ticked - the editor and a day card each keep their own."""
+    db.set_milestone_done(milestone_id, day if st.session_state[key] else None)
 
 
 def _clear_day(task_id: int) -> None:
@@ -137,8 +138,10 @@ def _dismiss() -> None:
     st.session_state["dismissed_item"] = st.session_state.get("open_item")
 
 
-def _editor(item, prefix: str, names: list[str]) -> None:
-    """Everything about one item, and everything you can change about it."""
+def _editor(item, prefix: str, names: list[str], day: date) -> None:
+    """Everything about one item, and everything you can change about it. `day`
+    is the one a milestone ticked here is filed under: the card it was opened
+    from, or today where there is no card."""
     st.session_state["open_item"] = item.id
     if pd.isna(item.done_on):
         st.markdown(f":gray-badge[Open {item.kind}]")
@@ -184,11 +187,13 @@ def _editor(item, prefix: str, names: list[str]) -> None:
         with _milestone_box(len(own)):
             for milestone in own.itertuples():
                 row = st.columns([9, 0.6], vertical_alignment="center")
-                row[0].checkbox(strike(milestone.title, bool(milestone.done)),
-                                value=bool(milestone.done),
-                                key=f"{prefix}dmilestone:{milestone.id}",
+                stamp = ("" if pd.isna(milestone.done_on) else
+                         f" :gray-badge[{milestone.done_on:%d %b}]")
+                key = f"{prefix}dmilestone:{milestone.id}"
+                row[0].checkbox(strike(milestone.title, bool(milestone.done))
+                                + stamp, value=bool(milestone.done), key=key,
                                 on_change=_toggle_milestone,
-                                args=(prefix, milestone.id))
+                                args=(key, milestone.id, day))
                 row[1].button("", icon=":material/close:",
                               key=f"{prefix}ddropmilestone:{milestone.id}",
                               on_click=db.delete_milestone, args=(milestone.id,))
@@ -244,6 +249,25 @@ def _editor(item, prefix: str, names: list[str]) -> None:
                      key=f"{prefix}dundo:{item.id}"):
             db.set_task_done(item.id, None)
             st.rerun(scope="app")
+
+
+def _milestone_row(milestone, prefix: str, day: date, rules: list[str]) -> bool:
+    """A milestone finished on this day, laid out as the tasks above it are: a
+    tick that takes it back off the day, and its own name in its project's
+    colour, which opens the card of the task it belongs to - the only place the
+    rest of it lives. True when that card was asked for."""
+    key = f"{prefix}dayms:{milestone.id}"
+    chip = f"{prefix}daychip:{milestone.id}"
+    if not pd.isna(milestone.colour):
+        rules.append(chip_css(chip, milestone.colour))
+
+    line = st.columns([1, 7], vertical_alignment="center")
+    line[0].checkbox("Done", value=True, key=key, label_visibility="collapsed",
+                     on_change=_toggle_milestone, args=(key, milestone.id, day))
+    # Only the milestone is named, so the task it belongs to is the hint.
+    return line[1].button(strike(milestone.title, True), key=chip,
+                          width="stretch",
+                          help=f"Milestone of {milestone.task}")
 
 
 #: What each kind is called where a new one is being made.
@@ -365,31 +389,35 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
 
 #: A dialog takes its title when it is decorated, so each kind gets its own.
 @st.dialog("Task", width="large", on_dismiss=_dismiss)
-def _open_task(item, prefix, names):
-    _editor(item, prefix, names)
+def _open_task(item, prefix, names, day):
+    _editor(item, prefix, names, day)
 
 
 @st.dialog("Meeting", width="large", on_dismiss=_dismiss)
-def _open_meeting(item, prefix, names):
-    _editor(item, prefix, names)
+def _open_meeting(item, prefix, names, day):
+    _editor(item, prefix, names, day)
 
 
 @st.dialog("Paper", width="large", on_dismiss=_dismiss)
-def _open_paper(item, prefix, names):
-    _editor(item, prefix, names)
+def _open_paper(item, prefix, names, day):
+    _editor(item, prefix, names, day)
 
 
-def open_item(item, prefix: str, names: list[str]) -> None:
+def open_item(item, prefix: str, names: list[str],
+              day: date | None = None) -> None:
     """The editor for one item, titled with what it is. Public, because every
-    page that lists items opens the same one."""
+    page that lists items opens the same one. `day` is the card it was opened
+    from; a page that lists items without days files a milestone under today."""
     opener = {db.TASK: _open_task, db.MEETING: _open_meeting,
               db.PAPER: _open_paper}[item.kind]
-    opener(item, prefix, names)
+    opener(item, prefix, names, day or date.today())
 
 
 def render_day(day: date, record, tasks: pd.DataFrame,
                milestones: pd.DataFrame, prefix: str, rules: list[str]):
-    """One day's card. Returns the item whose name was clicked, if any."""
+    """One day's card, from what `db.milestones_in` returns. Gives back the item
+    whose name was clicked and this day, so the editor knows where it opened
+    from, or None."""
     opened = None
     with st.container(border=True):
         header = st.columns([3, 2], vertical_alignment="center")
@@ -448,10 +476,17 @@ def render_day(day: date, record, tasks: pd.DataFrame,
             label_text = f"{clock_face} {strike(item.title, done)}".strip()
             if line[1].button(label_text + tally,
                               key=f"{prefix}open:{item.id}", width="stretch"):
-                opened = item
+                opened = item, day
 
         if tasks.empty:
             st.caption("No tasks assigned.")
+
+        # Ticked off on this day, whether or not its task is on it. A task goes
+        # back on the list unfinished; what was finished stays here regardless.
+        for milestone in milestones[
+                milestones["done_on"] == pd.Timestamp(day)].itertuples():
+            if _milestone_row(milestone, prefix, day, rules):
+                opened = db.item(milestone.task_id), day
 
         st.text_area("Notes", value=field(record, "comment") or "", height=80,
                      key=f"{prefix}comment:{day}", on_change=_save_day,
@@ -481,4 +516,5 @@ def render_week(week_start: date, records: dict, tasks: pd.DataFrame,
     if rules:
         st.html(style_block(rules))
     if opened is not None:
-        open_item(opened, prefix, [NO_PROJECT] + list(db.projects()["name"]))
+        item, day = opened
+        open_item(item, prefix, [NO_PROJECT] + list(db.projects()["name"]), day)

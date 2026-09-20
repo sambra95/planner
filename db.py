@@ -55,6 +55,7 @@ _ADDED_COLUMNS = {
               "goals": "TEXT", "actions": "TEXT",
               "start_time": "TEXT", "end_time": "TEXT", "tags": "TEXT"},
     "days": {"holiday": "INTEGER NOT NULL DEFAULT 0"},
+    "milestones": {"done_on": "DATE"},
     "projects": {"archived": "INTEGER NOT NULL DEFAULT 0",
                  "start_on": "DATE", "end_on": "DATE"},
 }
@@ -65,7 +66,8 @@ _FROM_TASKS = " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
 #: Milestone totals for a task, as two columns, in one statement.
 _MILESTONE_COUNTS = (
     "(SELECT COUNT(*) FROM milestones m WHERE m.task_id = t.id) AS milestones, "
-    "(SELECT COUNT(*) FROM milestones m WHERE m.task_id = t.id AND m.done = 1) "
+    "(SELECT COUNT(*) FROM milestones m "
+    "  WHERE m.task_id = t.id AND m.done_on IS NOT NULL) "
     "AS milestones_done")
 
 #: Everything an item's card and editor read, whatever kind the item is. One
@@ -114,7 +116,7 @@ CREATE TABLE IF NOT EXISTS milestones (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
     title   TEXT NOT NULL,
-    done    INTEGER NOT NULL DEFAULT 0
+    done_on DATE
 );
 -- Every task query counts its milestones with a correlated subquery. Without
 -- this, each one scans the whole table. No semicolons in here: _create_tables
@@ -157,10 +159,19 @@ def _rename_tables(connection) -> None:
                 session.commit()
 
 
+#: Everything that decides what the database should look like, in one value.
+#: It is handed to _create_tables purely so that changing any of it invalidates
+#: the cache: Streamlit keys that on the function's own source, so a session
+#: whose source was reloaded under it would otherwise keep the answer from
+#: before the change and never run the new migration.
+_SHAPE = str((_SCHEMA, _RENAMED_TABLES, _RENAMED_COLUMNS, _ADDED_COLUMNS))
+
+
 @st.cache_resource(show_spinner=False)
-def _create_tables(_connection) -> None:
-    """Create anything missing, once per session. The argument is underscored so
-    Streamlit caches on the call rather than trying to hash the connection."""
+def _create_tables(_connection, shape: str) -> None:
+    """Create anything missing, once per session and per `shape`. The connection
+    is underscored so Streamlit caches on the call rather than trying to hash
+    it; `shape` is unused here and is the cache key itself."""
     _rename_tables(_connection)
     with _connection.session as session:
         for statement in _SCHEMA.strip().split(";"):
@@ -205,6 +216,18 @@ def _catch_up(connection) -> None:
             session.execute(text("ALTER TABLE tasks DROP COLUMN is_meeting"))
             session.commit()
 
+    # A milestone was ticked or not; now it is ticked on a day. Which day is
+    # nowhere on record, so the task's own is the closest thing to it.
+    if "done" in columns("milestones"):
+        with connection.session as session:
+            session.execute(text(
+                "UPDATE milestones SET done_on = COALESCE("
+                "  (SELECT t.done_on FROM tasks t WHERE t.id = task_id),"
+                "  (SELECT t.day FROM tasks t WHERE t.id = task_id),"
+                "  DATE('now')) WHERE done = 1 AND done_on IS NULL"))
+            session.execute(text("ALTER TABLE milestones DROP COLUMN done"))
+            session.commit()
+
     _unique_colours(connection)
 
 
@@ -231,7 +254,7 @@ def _unique_colours(connection) -> None:
 def _conn():
     """The connection (``st.connection`` caches it), with its tables in place."""
     conn = st.connection("planner", type="sql", url=LOCAL_URL)
-    _create_tables(conn)
+    _create_tables(conn, _SHAPE)
     return conn
 
 
@@ -327,9 +350,9 @@ _MERGES = (
         FROM backup.tasks b
         WHERE NOT EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})"""),
     ("milestones", f"""
-        INSERT INTO milestones (task_id, title, done)
+        INSERT INTO milestones (task_id, title, done_on)
         SELECT (SELECT t.id FROM main.tasks t WHERE {_SAME_ITEM} LIMIT 1),
-               s.title, s.done
+               s.title, s.done_on
         FROM backup.milestones s JOIN backup.tasks b ON b.id = s.task_id
         WHERE EXISTS (SELECT 1 FROM main.tasks t WHERE {_SAME_ITEM})
           AND NOT EXISTS (
@@ -382,6 +405,13 @@ def _insert(sql: str, **params) -> int:
 
 
 # --- Tasks ------------------------------------------------------------------
+
+def item(task_id: int):
+    """One task, meeting or paper, in the shape every listing gives. A day card
+    opens the card of a finished milestone's task, which may be on no day at all
+    and so in none of the lists that card holds."""
+    return next(_read(_ITEMS + "WHERE t.id = :id", id=task_id).itertuples(), None)
+
 
 def open_tasks() -> pd.DataFrame:
     """Every task still to do, newest first. Meetings and papers live on their
@@ -679,54 +709,66 @@ def set_task_done(task_id: int, day: date | None) -> None:
 
 # --- Milestones --------------------------------------------------------------
 
+#: Being done is having a day. `done` is handed back alongside so that every
+#: list, tally and strike-through can ask the plain question. `extra` adds a
+#: column to those, for the one caller that needs more.
+_MILESTONE = ("SELECT s.id, s.task_id, s.title, s.done_on, "
+              "s.done_on IS NOT NULL AS done{extra} FROM milestones s ")
+
+
+def _milestones(sql: str, extra: str = "", **params) -> pd.DataFrame:
+    frame = _read(_MILESTONE.format(extra=extra) + sql, **params)
+    frame["done"] = frame["done"].astype(bool)
+    return frame
+
+
 def open_milestones() -> pd.DataFrame:
     """Every milestone of every open task, in one query; the task list groups
     them. Asking per task would be a round trip each, on every rerun."""
-    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM milestones s "
-                  "JOIN tasks t ON t.id = s.task_id "
-                  "WHERE t.done_on IS NULL AND t.kind = :kind "
-                  "ORDER BY s.task_id, s.id", kind=TASK)
-    frame["done"] = frame["done"].astype(bool)
-    return frame
+    return _milestones("JOIN tasks t ON t.id = s.task_id "
+                       "WHERE t.done_on IS NULL AND t.kind = :kind "
+                       "ORDER BY s.task_id, s.id", kind=TASK)
 
 
 def task_milestones(task_id: int) -> pd.DataFrame:
     """One task's milestones, read fresh. The editor opens as a dialog and is
     handed the same frame back on every rerun, so it asks again rather than
     showing the list as it stood when it opened."""
-    frame = _read("SELECT id, task_id, title, done FROM milestones "
-                  "WHERE task_id = :task_id ORDER BY id", task_id=task_id)
-    frame["done"] = frame["done"].astype(bool)
-    return frame
+    return _milestones("WHERE s.task_id = :task_id ORDER BY s.id",
+                       task_id=task_id)
 
 
 def milestones_in(first: date, last: date) -> pd.DataFrame:
-    """Every milestone of every task filed against a day in the range."""
-    frame = _read("SELECT s.id, s.task_id, s.title, s.done FROM milestones s "
-                  "JOIN tasks t ON t.id = s.task_id "
-                  "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
-                  "ORDER BY s.task_id, s.id",
-                  first=first.isoformat(), last=last.isoformat())
-    frame["done"] = frame["done"].astype(bool)
-    return frame
+    """Every milestone of every task filed against a day in the range, and every
+    one ticked off inside it - a milestone is finished on its own day, and its
+    task may sit on another or on none at all. The task's name and colour come
+    too: a day card shows a finished milestone as the task it belongs to."""
+    return _milestones(
+        "JOIN tasks t ON t.id = s.task_id "
+        "LEFT JOIN projects p ON p.id = t.project_id "
+        "WHERE COALESCE(t.done_on, t.day) BETWEEN :first AND :last "
+        "   OR s.done_on BETWEEN :first AND :last "
+        "ORDER BY s.task_id, s.id",
+        extra=", t.title AS task, p.colour AS colour",
+        first=first.isoformat(), last=last.isoformat())
 
 
 def add_milestone(task_id: int, title: str) -> None:
     """Add a milestone to a task. It never changes the task's own state."""
     if title := title.strip():
-        _write("INSERT INTO milestones (task_id, title, done) "
-               "VALUES (:task_id, :title, 0)", task_id=task_id, title=title)
+        _write("INSERT INTO milestones (task_id, title) "
+               "VALUES (:task_id, :title)", task_id=task_id, title=title)
 
 
 def delete_milestone(milestone_id: int) -> None:
     _write("DELETE FROM milestones WHERE id = :id", id=milestone_id)
 
 
-def set_milestone_done(milestone_id: int, done: bool) -> None:
-    """Tick one milestone off, or untick it. Never touches the task's own
-    state."""
-    _write("UPDATE milestones SET done = :done WHERE id = :id",
-           id=milestone_id, done=int(bool(done)))
+def set_milestone_done(milestone_id: int, day: date | None) -> None:
+    """Tick one milestone off on `day`, or untick it when `day` is None. Never
+    touches the task's own state: the task stays open and stays where it is."""
+    _write("UPDATE milestones SET done_on = :done_on WHERE id = :id",
+           id=milestone_id, done_on=day.isoformat() if day else None)
 
 
 # --- Days -------------------------------------------------------------------
