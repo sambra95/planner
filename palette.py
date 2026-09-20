@@ -179,9 +179,23 @@ def strike(text: str, done: bool) -> str:
     return f"~~{text}~~" if done else text
 
 
+def lightened(colour: str, amount: float = 0.05) -> str:
+    """`colour` with its lightness raised. Streamlit fills a plain button with
+    the page background lightened this far, and has no variable to borrow, so
+    anything meant to match one works it out the same way."""
+    red, green, blue = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    hue, light, saturation = colorsys.rgb_to_hls(red, green, blue)
+    channels = colorsys.hls_to_rgb(hue, min(1.0, light + amount), saturation)
+    return "#" + "".join(f"{round(channel * 255):02X}" for channel in channels)
+
+
 def chip_css(key: str, colour) -> str:
     """CSS making one `st.button(key=...)` read as a project chip: the project's
-    colour on a wash of it, rather than a default grey button."""
+    colour on a wash of it, rather than a default grey button. With no project
+    there is no colour to wash it in, so it keeps the page behind it and loses
+    its outline all the same - a chip with no colour, not a button among chips."""
+    if colour is None or pd.isna(colour):
+        return f'.{css_class(key)} button {{ border-color: transparent !important; }}'
     tint = as_hex(colour)
     return (f'.{css_class(key)} button {{ '
             f'background-color: {_rgba(tint, WASH_ALPHA)} !important; '

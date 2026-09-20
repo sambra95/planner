@@ -35,8 +35,7 @@ for task in tasks.itertuples():
     own = milestones[milestones["task_id"] == task.id]
     tally = f" ({int(own['done'].sum())}/{len(own)})" if len(own) else ""
     day = "" if pd.isna(task.day) else f" · {task.day:%a %d %b}"
-    if not pd.isna(task.colour):
-        rules.append(chip_css(f"tasks:open:{task.id}", task.colour))
+    rules.append(chip_css(f"tasks:open:{task.id}", task.colour))
 
     line = st.columns([0.4, 9, 0.5], vertical_alignment="center")
     line[0].checkbox("Done", value=False, key=f"done:{task.id}",

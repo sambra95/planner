@@ -32,8 +32,7 @@ if papers.empty:
 for paper in papers.itertuples():
     day = "" if pd.isna(paper.day) else f" · {paper.day:%a %d %b}"
     tags = "" if pd.isna(paper.tags) else f" · {paper.tags}"
-    if not pd.isna(paper.colour):
-        rules.append(chip_css(f"papers:open:{paper.id}", paper.colour))
+    rules.append(chip_css(f"papers:open:{paper.id}", paper.colour))
 
     line = st.columns([0.4, 9, 0.5], vertical_alignment="center")
     line[0].checkbox("Read", value=False, key=f"paper_read:{paper.id}",

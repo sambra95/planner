@@ -86,8 +86,7 @@ for week in grid:
             for meeting in on_day.itertuples():
                 # Buttons cannot render a colour directive in their label, so the
                 # button itself is painted in the project's colour instead.
-                if not pd.isna(meeting.colour):
-                    rules.append(chip_css(f"open-{meeting.id}", meeting.colour))
+                rules.append(chip_css(f"open-{meeting.id}", meeting.colour))
                 clock_face = when(meeting._asdict())
                 if st.button(f"{clock_face} {meeting.title}".strip(),
                              key=f"open-{meeting.id}", width="stretch"):

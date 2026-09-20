@@ -1,16 +1,15 @@
 """One week in figures and one chart: what it added up to, and the shape of each
-day. Drawn the same on the Review page and in the archive."""
+day. Drawn the same under My Week and in the archive."""
 
 from datetime import date, timedelta
-from itertools import zip_longest
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
 import db
-from worktime import (WEEK_DAYS, clock, day_hours, field, is_holiday, totals,
-                      week_records, with_defaults)
+from worktime import (WEEK_DAYS, WEEK_HOURS, clock, day_hours, expected, field,
+                      is_holiday, totals, week_records, with_defaults)
 
 #: A quiet grey for the labels and a lighter one for the guides.
 LABEL, GREY = "#6F6757", "#B4AC9C"
@@ -73,24 +72,29 @@ def _week_frame(week_start: date, saved: dict) -> pd.DataFrame:
 
 
 def _cards(week_start: date, week_end: date, saved: dict) -> None:
-    """What the week added up to, two figures to a row."""
+    """What the week added up to: the hours, then what was finished."""
     filed = db.items_in(week_start, week_end)
     finished = filed[filed["done_on"].notna()]["kind"].value_counts()
-    hours, _breaks, overtime = totals(week_records(week_start, saved))
+    # An unfilled weekday counts as the ordinary day its card is showing.
+    counted = week_records(week_start, saved)
+    hours, breaks, overtime = totals(counted)
+    owed = expected(counted)
 
-    cards = [("Hours worked", f"{hours:.1f} h", f"{overtime:+.1f} h"),
-             ("Tasks completed", int(finished.get(db.TASK, 0)), None),
-             ("Meetings completed", int(finished.get(db.MEETING, 0)), None),
-             ("Papers read", int(finished.get(db.PAPER, 0)), None)]
-    for first_card, second_card in zip_longest(cards[::2], cards[1::2]):
-        pair = st.columns(2)
-        for column, card in zip(pair, (first_card, second_card)):
-            if card is None:
-                continue
+    # The hours on one row, then what was finished on the next.
+    rows = ([("Hours worked", f"{hours:.1f} h", f"{overtime:+.1f} h"),
+             ("Break", f"{breaks:.1f} h", None)],
+            [(label, int(finished.get(kind, 0)), None)
+             for kind, label in ((db.TASK, "Tasks completed"),
+                                 (db.MEETING, "Meetings completed"),
+                                 (db.PAPER, "Papers read"))])
+    for row in rows:
+        for column, card in zip(st.columns(len(row)), row):
             holder = column.container(key="hours-card") if card[2] else column
-            holder.metric(card[0], card[1], delta=card[2], border=True,
-                          help="Overtime is against the hours this week owes."
-                               if card[2] else None)
+            holder.metric(
+                card[0], card[1], delta=card[2], border=True,
+                help=(f"Overtime, against the {owed:g} h this week owes"
+                      + (f" ({WEEK_HOURS:g} h, less any holiday)."
+                         if owed != WEEK_HOURS else ".")) if card[2] else None)
     st.html(CARD_CSS)
 
 

@@ -164,6 +164,10 @@ def main() -> int:
     print(f"\n[Planner] Starting {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     env = dict(os.environ)
+    # No .pyc files written beside the app's own modules: the bundle is signed,
+    # and anything appearing inside it afterwards breaks the seal. The modules
+    # are a handful and compile in a moment.
+    env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     env.setdefault("PLANNER_DB", str(_support_dir() / "planner.db"))
     print(f"[Planner] Data: {env['PLANNER_DB']}")
 

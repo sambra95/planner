@@ -702,9 +702,17 @@ def items_in(first: date, last: date) -> pd.DataFrame:
 
 
 def set_task_done(task_id: int, day: date | None) -> None:
-    """Tick a task off on `day`, or untick it when `day` is None."""
+    """Tick a task off on `day`, or untick it when `day` is None. Finishing the
+    task finishes whatever milestones were still open, on the same day: the work
+    is done whether or not each one was ticked as it went. Unticking leaves them
+    finished - which were finished in their own right is not on record, and this
+    app does not un-finish work behind your back."""
     _write("UPDATE tasks SET done_on = :done_on WHERE id = :id",
            id=task_id, done_on=day.isoformat() if day else None)
+    if day:
+        _write("UPDATE milestones SET done_on = :done_on "
+               "WHERE task_id = :id AND done_on IS NULL",
+               id=task_id, done_on=day.isoformat())
 
 
 # --- Milestones --------------------------------------------------------------
@@ -798,26 +806,17 @@ def save_day(day: date, start: time | None, end: time | None,
 
 # --- Weekly review ----------------------------------------------------------
 
-def all_days() -> pd.DataFrame:
-    """Every day ever recorded, for the archive."""
-    return _read("SELECT day, start_time, end_time, break_hours, comment, holiday "
-                 "FROM days "
-                 "ORDER BY day")
-
-
-def completed_tasks() -> pd.DataFrame:
-    """Every finished task, under the day it was finished."""
-    return _read("SELECT t.id, t.title, t.day, t.done_on, p.name AS project, "
-                 "p.colour AS colour, " + _MILESTONE_COUNTS
-                 + _FROM_TASKS
-                 + "WHERE t.done_on IS NOT NULL ORDER BY t.done_on, t.id")
-
-
-def all_reviews() -> pd.DataFrame:
-    """Every review answer ever saved, including ones whose question has since
-    been reworded - the archive still shows them as they were asked."""
-    return _read("SELECT week_start, question, answer FROM reviews "
-                 "ORDER BY week_start, question")
+def recorded_weeks() -> list[date]:
+    """The Monday of every week with anything in it, newest first: a day filled
+    in, a task finished, or a review answered. `weekday 0` lands on the Sunday
+    that ends the week, so six days back from it is the Monday that starts it."""
+    frame = _read(
+        "SELECT DISTINCT DATE(day, 'weekday 0', '-6 days') AS week FROM days "
+        "UNION SELECT DISTINCT DATE(done_on, 'weekday 0', '-6 days') FROM tasks "
+        "  WHERE done_on IS NOT NULL "
+        "UNION SELECT DISTINCT week_start FROM reviews "
+        "ORDER BY week DESC")
+    return [date.fromisoformat(week) for week in frame["week"] if week]
 
 
 #: Asked at the end of each week. Reword them freely; answers already saved keep

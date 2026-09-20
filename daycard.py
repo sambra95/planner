@@ -1,6 +1,6 @@
 """One day's card, and a week of them, shared by My Week and the archive.
 
-The checklist is a tick and a name; description, milestones and notes open in a
+The checklist is a tick and a name; notes, milestones and write-ups open in a
 dialog. Widget keys are prefixed per page so the same day rendered twice does
 not collide in Session State.
 """
@@ -173,10 +173,12 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
     # Only a task carries one: a meeting and a paper say what they are in their
     # write-up and their notes.
     if item.kind == db.TASK:
-        st.text_input("Description", key=f"{prefix}dabout:{item.id}",
-                      value="" if pd.isna(item.description) else item.description,
-                      placeholder="Add a description…",
-                      on_change=_set_description, args=(prefix, item.id))
+        # A text area, as a meeting's write-up is: that is what the bullets
+        # attach themselves to, and a note is rarely one line.
+        st.text_area("Notes", key=f"{prefix}dabout:{item.id}", height=130,
+                     value="" if pd.isna(item.description) else item.description,
+                     placeholder="Add a note…",
+                     on_change=_set_description, args=(prefix, item.id))
 
     if item.kind == db.TASK:
         st.markdown("**Milestones**")
@@ -258,8 +260,7 @@ def _milestone_row(milestone, prefix: str, day: date, rules: list[str]) -> bool:
     rest of it lives. True when that card was asked for."""
     key = f"{prefix}dayms:{milestone.id}"
     chip = f"{prefix}daychip:{milestone.id}"
-    if not pd.isna(milestone.colour):
-        rules.append(chip_css(chip, milestone.colour))
+    rules.append(chip_css(chip, milestone.colour))
 
     line = st.columns([1, 7], vertical_alignment="center")
     line[0].checkbox("Done", value=True, key=key, label_visibility="collapsed",
@@ -328,8 +329,8 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
     when = dated.date_input("Day", value=day, key=key + "day",
                             format="DD/MM/YYYY")
     description = ("" if kind != db.TASK else
-                   st.text_input("Description", key=key + "about",
-                                 placeholder="Add a description…"))
+                   st.text_area("Notes", key=key + "about", height=130,
+                                placeholder="Add a note…"))
 
     times, notes = (None, None), {}
     if kind == db.MEETING:
@@ -465,8 +466,7 @@ def render_day(day: date, record, tasks: pd.DataFrame,
             own = (milestones[milestones["task_id"] == item.id]
                    if item.kind == db.TASK else milestones.iloc[0:0])
             tally = f" ({int(own['done'].sum())}/{len(own)})" if len(own) else ""
-            if not pd.isna(item.colour):
-                rules.append(chip_css(f"{prefix}open:{item.id}", item.colour))
+            rules.append(chip_css(f"{prefix}open:{item.id}", item.colour))
 
             line = st.columns([1, 7], vertical_alignment="center")
             line[0].checkbox("Done", value=done, key=f"{prefix}task:{item.id}",
@@ -481,10 +481,13 @@ def render_day(day: date, record, tasks: pd.DataFrame,
         if tasks.empty:
             st.caption("No tasks assigned.")
 
-        # Ticked off on this day, whether or not its task is on it. A task goes
-        # back on the list unfinished; what was finished stays here regardless.
-        for milestone in milestones[
-                milestones["done_on"] == pd.Timestamp(day)].itertuples():
+        # Ticked off on this day while its task is elsewhere: a task goes back on
+        # the list unfinished, and what was finished stays recorded here. One
+        # whose task is on this card is left to it - finishing a task finishes
+        # its milestones, and the two rows would say the same thing twice.
+        finished = milestones[(milestones["done_on"] == pd.Timestamp(day))
+                              & ~milestones["task_id"].isin(tasks["id"])]
+        for milestone in finished.itertuples():
             if _milestone_row(milestone, prefix, day, rules):
                 opened = db.item(milestone.task_id), day
 

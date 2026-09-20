@@ -21,7 +21,6 @@ page = st.navigation([
     st.Page("app_pages/tasks.py", title="Tasks", icon=":material/checklist:"),
     st.Page("app_pages/meetings.py", title="Meetings", icon=":material/groups:"),
     st.Page("app_pages/papers.py", title="Papers", icon=":material/menu_book:"),
-    st.Page("app_pages/review.py", title="Review", icon=":material/rate_review:"),
     st.Page("app_pages/projects.py", title="Projects", icon=":material/folder:"),
     st.Page("app_pages/archive.py", title="Archive", icon=":material/inventory_2:"),
 ], position="top")

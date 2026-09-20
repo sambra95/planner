@@ -1,116 +1,41 @@
-"""Archive: the projects retired, then every week recorded, with the week
-you pick opened up underneath."""
+"""Archive: the projects retired, and the history itself. A week is opened and
+reviewed on My Week, which any of them can be picked on."""
 
-from datetime import date, timedelta
+from datetime import date
 
-import pandas as pd
 import streamlit as st
 
 import daycard
 import db
-import weeksummary
-from worktime import WEEK_HOURS, monday_of, totals, week_records
+import projectcard
+from palette import NO_PROJECT, chip_css, style_block
 
-def _save_answer(week_start: date, question: str) -> None:
-    """One answer, written as it is typed; the rest of the week is untouched."""
-    db.save_review(week_start,
-                   {question: st.session_state[f"archive:{week_start}:{question}"]})
-
-
-days = db.all_days()
-tasks = db.completed_tasks()
-reviews = db.all_reviews()
-
-if days.empty and tasks.empty and reviews.empty:
-    st.caption("Nothing recorded yet.")
-    st.stop()
-
-# The Monday that starts each record's week, so everything groups the same way.
-for frame, column in ((days, "day"), (tasks, "done_on"), (reviews, "week_start")):
-    frame["week"] = frame[column].dt.to_period("W-SUN").dt.start_time
-
-# This week is always offered, recorded or not, since it is what opens first.
-this_week = pd.Timestamp(monday_of(date.today()))
-weeks = sorted(set(days["week"]) | set(tasks["week"]) | set(reviews["week"])
-               | {this_week}, reverse=True)
-
-st.markdown("**Weeks**")
-
-
-chosen = st.selectbox("Open a week", weeks, index=weeks.index(this_week),
-                      format_func=lambda week: f"{week:%d %b %Y}")
-
-start = chosen.date()
-end = start + timedelta(days=6)
-# `days` already holds every day, so the chosen week is a filter, not a query.
-daycard.render_week(start, {row["day"].date(): row
-                            for _, row in days[days["week"] == chosen].iterrows()},
-                    db.items_in(start, end), db.milestones_in(start, end),
-                    prefix="archive:")
-
-st.divider()
-st.markdown("**Review**")
-# Laid out as the Review page lays it out: the week in figures beside what you
-# made of it, and the answers still editable here.
-summary, writing = st.columns(2, gap="large")
-
-with summary:
-    weeksummary.render(start)
-
-with writing:
-    saved_answers = db.review(start)
-    for question in db.REVIEW_QUESTIONS:
-        st.text_area(question, value=saved_answers.get(question, ""), height=150,
-                     key=f"archive:{start}:{question}", on_change=_save_answer,
-                     args=(start, question))
-
-st.divider()
-st.markdown("**Every week**")
-
-
-def _summarise(week) -> dict:
-    """One row a week, counted the way the week's own cards count it."""
-    saved = {row["day"].date(): row
-             for _, row in days[days["week"] == week].iterrows()}
-    worked, breaks, overtime = totals(week_records(week.date(), saved))
-    return {"Week beginning": week, "Hours worked": worked, "Break": breaks,
-            "Overtime": overtime,
-            "Tasks completed": int((tasks["week"] == week).sum()),
-            "Reviewed": bool(reviews[reviews["week"] == week]["answer"].notna().any())}
-
-
-st.dataframe(pd.DataFrame([_summarise(week) for week in weeks]),
-             hide_index=True, width="stretch", column_config={
-    "Week beginning": st.column_config.DateColumn(format="ddd DD MMM YYYY"),
-    "Hours worked": st.column_config.NumberColumn(format="%.1f h"),
-    "Break": st.column_config.NumberColumn(format="%.1f h"),
-    "Overtime": st.column_config.NumberColumn(
-        format="%+.1f h",
-        help=f"Against a {WEEK_HOURS:g} h week, less any holiday."),
-    "Reviewed": st.column_config.CheckboxColumn(),
-})
-
-st.divider()
 st.markdown("**Archived projects**")
 
-retired = db.projects()
-retired = retired[retired["archived"] == 1]
+projects = db.projects()
+retired = projects[projects["archived"] == 1]
 if retired.empty:
     st.caption("None archived.")
+else:
+    # Retiring a project does not hide what it held: the chip opens the same
+    # card it has on the Projects page, with the way back where the archive and
+    # delete buttons are there.
+    mine = projectcard.assigned(db.project_items())
+
+# Stashed by a project's card, which cannot open a dialog from inside one.
+picked = st.session_state.pop("project_item", None)
+
+rules = []
 for project in retired.itertuples():
-    with st.container(border=True, key=f"retired-{project.id}"):
-        row = st.columns([7, 2.4, 0.6], vertical_alignment="center")
-        row[0].markdown(f"**{project.name}**")
-        if not pd.isna(project.description):
-            row[0].caption(project.description)
-        span = " - ".join(f"{stamp:%d %b %Y}" for stamp in
-                          (project.start_on, project.end_on) if not pd.isna(stamp))
-        row[1].caption(span or "no dates")
-        if row[2].button("", icon=":material/unarchive:",
-                         key=f"retired_restore:{project.id}",
-                         help="Put it back, with a colour of its own"):
-            db.restore_project(project.id)
-            st.rerun()
+    rules.append(chip_css(f"retired:{project.id}", project.colour))
+    if st.button(project.name, key=f"retired:{project.id}", width="stretch"):
+        projectcard.open_project(project, mine, "arch")
+
+if rules:
+    st.html(style_block(rules))
+
+if picked is not None:
+    daycard.open_item(picked, "arch:", [NO_PROJECT] + list(projects["name"]))
 
 st.divider()
 st.markdown("**Backups**")
