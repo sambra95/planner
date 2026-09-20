@@ -166,8 +166,10 @@ def _open(project, prefix: str) -> None:
     picked = _belongings(project, items, prefix)
     if picked is not None:
         # One dialog cannot open another, so the page is left to do it: this
-        # rerun closes the card, and the page finds the item waiting.
+        # rerun closes the card, and the page finds the item waiting. Which
+        # card it came from is noted down with it, so it can come back.
         st.session_state["project_item"] = picked
+        st.session_state["project_waiting"] = project.id
         st.rerun(scope="app")
 
     _actions(project, prefix)
@@ -175,7 +177,9 @@ def _open(project, prefix: str) -> None:
 
 def chips(projects: pd.DataFrame, prefix: str, names: list[str]) -> None:
     """One project to a row in its own colour, each opening its card, and the
-    item a card's table picked opened here once the card has closed."""
+    item a card's table picked opened here once the card has closed. Closing
+    that item puts its card back, so the table it was picked from is where you
+    are left."""
     picked = st.session_state.pop("project_item", None)
 
     rules = []
@@ -189,3 +193,11 @@ def chips(projects: pd.DataFrame, prefix: str, names: list[str]) -> None:
 
     if picked is not None:
         daycard.open_item(picked, f"{prefix}:", names)
+    elif (waiting := st.session_state.pop("project_waiting", None)) is not None:
+        # The item is gone from the screen - dismissed, deleted, or taken off
+        # its day - so the card that opened it comes back. Only a rerun of the
+        # whole page reaches here, and that is the one thing that closes a
+        # dialog. Read the project again: its card may have been edited.
+        back = projects[projects["id"] == waiting]
+        if not back.empty:
+            _open(next(back.itertuples()), prefix)
