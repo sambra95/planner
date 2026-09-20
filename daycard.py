@@ -98,6 +98,12 @@ _MILESTONES_SHOWN = 5
 _MILESTONE_ROW = 42
 
 
+def _done_badge(done_on, verb: str = "Completed") -> str:
+    """When something was finished, worded and dated the same wherever it shows.
+    A paper is read, not quite "done"."""
+    return f":green-badge[{verb} {done_on:%a %d %b %Y}]"
+
+
 def _milestone_box(count: int):
     """The frame the milestones are listed in. A short list simply takes the room
     it needs; a long one is capped and scrolls inside the card, so the box to add
@@ -143,13 +149,6 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
     is the one a milestone ticked here is filed under: the card it was opened
     from, or today where there is no card."""
     st.session_state["open_item"] = item.id
-    if pd.isna(item.done_on):
-        st.markdown(f":gray-badge[Open {item.kind}]")
-    else:
-        # A paper is read, not quite "done".
-        verb = "Read" if item.kind == db.PAPER else "Completed"
-        st.markdown(f":green-badge[{verb} {item.done_on:%a %d %b %Y}]")
-
     # Laid out as the empty editor a new one is made in: the title on its own,
     # then project and day, and for a meeting the hours beside them.
     st.text_input("Title", value=item.title, key=f"{prefix}dtitle:{item.id}",
@@ -182,15 +181,14 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
 
     if item.kind == db.TASK:
         st.markdown("**Milestones**")
-        # Read again rather than trusting the frame the dialog opened with: a
-        # dialog is a fragment and is handed its arguments back on every rerun,
-        # so adding or dropping one would not show until the page ran again.
+        # Read again here: a dialog is a fragment, handed its arguments back on
+        # every rerun, so a frame passed in never changes.
         own = db.task_milestones(item.id)
         with _milestone_box(len(own)):
             for milestone in own.itertuples():
                 row = st.columns([9, 0.6], vertical_alignment="center")
                 stamp = ("" if pd.isna(milestone.done_on) else
-                         f" :gray-badge[{milestone.done_on:%d %b}]")
+                         " " + _done_badge(milestone.done_on))
                 key = f"{prefix}dmilestone:{milestone.id}"
                 row[0].checkbox(strike(milestone.title, bool(milestone.done))
                                 + stamp, value=bool(milestone.done), key=key,
@@ -388,30 +386,25 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
     st.rerun(scope="app")
 
 
-#: A dialog takes its title when it is decorated, so each kind gets its own.
-@st.dialog("Task", width="large", on_dismiss=_dismiss)
-def _open_task(item, prefix, names, day):
-    _editor(item, prefix, names, day)
-
-
-@st.dialog("Meeting", width="large", on_dismiss=_dismiss)
-def _open_meeting(item, prefix, names, day):
-    _editor(item, prefix, names, day)
-
-
-@st.dialog("Paper", width="large", on_dismiss=_dismiss)
-def _open_paper(item, prefix, names, day):
-    _editor(item, prefix, names, day)
-
-
 def open_item(item, prefix: str, names: list[str],
               day: date | None = None) -> None:
-    """The editor for one item, titled with what it is. Public, because every
-    page that lists items opens the same one. `day` is the card it was opened
-    from; a page that lists items without days files a milestone under today."""
-    opener = {db.TASK: _open_task, db.MEETING: _open_meeting,
-              db.PAPER: _open_paper}[item.kind]
-    opener(item, prefix, names, day or date.today())
+    """The editor for one item, headed with what it is and where it stands.
+    Public, because every page that lists items opens the same one. `day` is the
+    card it was opened from; a page listing items without days files a milestone
+    under today.
+
+    A dialog takes its title when it is decorated, so one naming this item is
+    made here rather than three standing ones taking it as an argument."""
+    standing = (":gray-badge[Open]" if pd.isna(item.done_on) else
+                _done_badge(item.done_on,
+                            "Read" if item.kind == db.PAPER else "Completed"))
+
+    @st.dialog(f"{item.kind.capitalize()} {standing}", width="large",
+               on_dismiss=_dismiss)
+    def _open():
+        _editor(item, prefix, names, day or date.today())
+
+    _open()
 
 
 def render_day(day: date, record, tasks: pd.DataFrame,
@@ -481,10 +474,9 @@ def render_day(day: date, record, tasks: pd.DataFrame,
         if tasks.empty:
             st.caption("No tasks assigned.")
 
-        # Ticked off on this day while its task is elsewhere: a task goes back on
-        # the list unfinished, and what was finished stays recorded here. One
-        # whose task is on this card is left to it - finishing a task finishes
-        # its milestones, and the two rows would say the same thing twice.
+        # Ticked off here while its task sits elsewhere. One whose task is on
+        # this card is left to it: finishing a task finishes its milestones, so
+        # both rows would say the same thing.
         finished = milestones[(milestones["done_on"] == pd.Timestamp(day))
                               & ~milestones["task_id"].isin(tasks["id"])]
         for milestone in finished.itertuples():

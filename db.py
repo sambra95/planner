@@ -159,11 +159,9 @@ def _rename_tables(connection) -> None:
                 session.commit()
 
 
-#: Everything that decides what the database should look like, in one value.
-#: It is handed to _create_tables purely so that changing any of it invalidates
-#: the cache: Streamlit keys that on the function's own source, so a session
-#: whose source was reloaded under it would otherwise keep the answer from
-#: before the change and never run the new migration.
+#: Everything deciding what the database should look like. _create_tables takes
+#: it only as a cache key: Streamlit keys on the function's own source, so a
+#: session reloaded under a new migration would never run it.
 _SHAPE = str((_SCHEMA, _RENAMED_TABLES, _RENAMED_COLUMNS, _ADDED_COLUMNS))
 
 
@@ -608,12 +606,12 @@ def delete_task(task_id: int) -> None:
 
 # --- Projects ---------------------------------------------------------------
 
-def project_items() -> pd.DataFrame:
-    """Everything assigned to a project - tasks, meetings and papers - open ones
-    first, each with the `haystack` its project's search box filters on."""
+def project_items(project_id: int) -> pd.DataFrame:
+    """Everything assigned to one project - tasks, meetings and papers - open
+    ones first, each with the `haystack` its search box filters on."""
     return _read(_ITEM_COLUMNS + _HAYSTACK + _FROM_TASKS
-                 + "WHERE t.project_id IS NOT NULL "
-                 "ORDER BY t.done_on IS NOT NULL, t.id DESC")
+                 + "WHERE t.project_id = :id "
+                 "ORDER BY t.done_on IS NOT NULL, t.id DESC", id=project_id)
 
 
 def projects() -> pd.DataFrame:
@@ -702,11 +700,9 @@ def items_in(first: date, last: date) -> pd.DataFrame:
 
 
 def set_task_done(task_id: int, day: date | None) -> None:
-    """Tick a task off on `day`, or untick it when `day` is None. Finishing the
-    task finishes whatever milestones were still open, on the same day: the work
-    is done whether or not each one was ticked as it went. Unticking leaves them
-    finished - which were finished in their own right is not on record, and this
-    app does not un-finish work behind your back."""
+    """Tick a task off on `day`, or untick it when `day` is None. Finishing it
+    finishes any milestone still open, under the same day; unticking leaves them
+    finished, since nothing here un-finishes work."""
     _write("UPDATE tasks SET done_on = :done_on WHERE id = :id",
            id=task_id, done_on=day.isoformat() if day else None)
     if day:

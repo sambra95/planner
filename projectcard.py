@@ -1,5 +1,5 @@
-"""One project's card: what it is, what it amounts to, and a searchable table
-of everything assigned to it. A project is a chip like a task or a meeting, and
+"""One project's card: what it is, what it amounts to, and a searchable table of
+everything assigned to it. A project is a chip like a task or a meeting, and
 this is what opens when one is clicked - on Projects, and in the archive, where
 retiring a project hides none of what it held.
 """
@@ -9,7 +9,9 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+import daycard
 import db
+from palette import chip_css, style_block
 
 #: The kinds a project can hold, each with what finishing one is called: a
 #: paper is read, the rest are completed.
@@ -20,38 +22,42 @@ KINDS = ((db.TASK, "Tasks", "completed"), (db.MEETING, "Meetings", "completed"),
 FINISHED = {kind: verb for kind, _label, verb in KINDS}
 
 
-def assigned(items: pd.DataFrame) -> dict:
-    """Everything grouped by the project it belongs to, so a page drawing one
-    card per project counts the rows once rather than once each."""
-    return {name: frame for name, frame in items.groupby("project")}
+def _rename(prefix: str, project_id: int) -> None:
+    db.rename_project(project_id, st.session_state[f"{prefix}name:{project_id}"])
 
 
-def tally(project, mine: dict) -> None:
-    """How much is attached, by kind and by whether it is finished. Counted from
-    the rows already fetched for the search boxes, so this costs no query."""
-    found = mine.get(project.name)
-    finished = open_now = pd.Series(dtype=int)
-    if found is not None:
-        finished = found[found["done_on"].notna()]["kind"].value_counts()
-        open_now = found[found["done_on"].isna()]["kind"].value_counts()
+def _set_description(prefix: str, project_id: int) -> None:
+    db.set_project_description(
+        project_id, st.session_state[f"{prefix}about:{project_id}"])
+
+
+def _set_dates(prefix: str, project_id: int) -> None:
+    db.set_project_dates(project_id,
+                         st.session_state[f"{prefix}start:{project_id}"],
+                         st.session_state[f"{prefix}end:{project_id}"])
+
+
+def _tally(items: pd.DataFrame) -> None:
+    """How much is attached, by kind and by whether it is finished."""
+    finished = items[items["done_on"].notna()]["kind"].value_counts()
+    open_now = items[items["done_on"].isna()]["kind"].value_counts()
     st.markdown(" ".join(
         f":gray-badge[{label}: {int(open_now.get(kind, 0))} open, "
         f"{int(finished.get(kind, 0))} {verb}]" for kind, label, verb in KINDS))
 
 
-def belongings(project, mine: dict, prefix: str):
+def _belongings(project, items: pd.DataFrame, prefix: str):
     """Everything assigned to this project, in a table that stays one height
     however much there is. The box above it narrows the table, and picking a row
-    gives that item back, for the caller to open in the editor its own page uses.
-    `prefix` keeps two of these apart when both are on screen."""
+    gives that item back for the caller to open."""
+    if items.empty:
+        st.caption("Nothing assigned yet.")
+        return None
+
     term = st.text_input(
         "Search", key=f"{prefix}search:{project.id}", label_visibility="collapsed",
         placeholder="Search this project's tasks, meetings and papers…")
-
-    found = mine.get(project.name)
-    if found is None:
-        st.caption("Nothing assigned yet.")
-        return None
+    found = items
     if term:
         found = found[found["haystack"].str.contains(term.strip().lower(),
                                                      regex=False, na=False)]
@@ -59,16 +65,16 @@ def belongings(project, mine: dict, prefix: str):
         st.caption("Nothing matching.")
         return None
 
-    listing = pd.DataFrame({
-        "Kind": found["kind"].str.capitalize(),
-        "Item": found["title"],
-        "Day": found["on_day"],
-        "Status": [FINISHED[kind].capitalize() if pd.notna(done) else "Open"
-                   for kind, done in zip(found["kind"], found["done_on"])],
-        "Notes": found["notes"].fillna(""),
-    })
     picked = st.dataframe(
-        listing, hide_index=True, width="stretch", height=200,
+        pd.DataFrame({
+            "Kind": found["kind"].str.capitalize(),
+            "Item": found["title"],
+            "Day": found["on_day"],
+            "Status": [FINISHED[kind].capitalize() if pd.notna(done) else "Open"
+                       for kind, done in zip(found["kind"], found["done_on"])],
+            "Notes": found["notes"].fillna(""),
+        }),
+        hide_index=True, width="stretch", height=200,
         key=f"{prefix}hits:{project.id}", on_select="rerun",
         selection_mode="single-row",
         column_config={
@@ -93,25 +99,9 @@ def belongings(project, mine: dict, prefix: str):
     return chosen
 
 
-def _rename(prefix: str, project_id: int) -> None:
-    db.rename_project(project_id, st.session_state[f"{prefix}name:{project_id}"])
-
-
-def _set_description(prefix: str, project_id: int) -> None:
-    db.set_project_description(
-        project_id, st.session_state[f"{prefix}about:{project_id}"])
-
-
-def _set_dates(prefix: str, project_id: int) -> None:
-    db.set_project_dates(project_id,
-                         st.session_state[f"{prefix}start:{project_id}"],
-                         st.session_state[f"{prefix}end:{project_id}"])
-
-
 def _actions(project, prefix: str) -> None:
     """What can be done with the whole project. An archived one offers only the
-    way back; a live one asks before either of the two that cannot be taken
-    back lightly."""
+    way back; a live one asks before either of the two that cannot be undone."""
     if project.archived:
         if st.button("Put it back", icon=":material/unarchive:",
                      key=f"{prefix}restore:{project.id}",
@@ -145,7 +135,8 @@ def _actions(project, prefix: str) -> None:
             st.rerun(scope="app")
 
 
-def card(project, mine: dict, prefix: str) -> None:
+@st.dialog("Project", width="large")
+def _open(project, prefix: str) -> None:
     """Everything about one project, laid out as an item's own card is: the name
     on its own, then the dates, then what it holds."""
     if project.archived:
@@ -168,19 +159,31 @@ def card(project, mine: dict, prefix: str) -> None:
                   placeholder="Add a description…",
                   on_change=_set_description, args=(prefix, project.id))
 
-    tally(project, mine)
-    picked = belongings(project, mine, prefix)
+    items = db.project_items(project.id)
+    _tally(items)
+    picked = _belongings(project, items, prefix)
     if picked is not None:
         # One dialog cannot open another, so the page is left to do it: this
-        # rerun closes this card, and the page finds the item waiting.
+        # rerun closes the card, and the page finds the item waiting.
         st.session_state["project_item"] = picked
         st.rerun(scope="app")
 
     _actions(project, prefix)
 
 
-@st.dialog("Project", width="large")
-def open_project(project, mine: dict, prefix: str) -> None:
-    """The card for one project. Public, because Projects and the archive open
-    the same one."""
-    card(project, mine, prefix)
+def chips(projects: pd.DataFrame, prefix: str, names: list[str]) -> None:
+    """One project to a row in its own colour, each opening its card, and the
+    item a card's table picked opened here once the card has closed."""
+    picked = st.session_state.pop("project_item", None)
+
+    rules = []
+    for project in projects.itertuples():
+        key = f"{prefix}:{project.id}"
+        rules.append(chip_css(key, project.colour))
+        if st.button(project.name, key=key, width="stretch"):
+            _open(project, prefix)
+    if rules:
+        st.html(style_block(rules))
+
+    if picked is not None:
+        daycard.open_item(picked, f"{prefix}:", names)

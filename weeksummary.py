@@ -71,14 +71,17 @@ def _week_frame(week_start: date, saved: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _cards(week_start: date, week_end: date, saved: dict) -> None:
+def _cards(week_start: date, saved: dict, filed: pd.DataFrame) -> None:
     """What the week added up to: the hours, then what was finished."""
-    filed = db.items_in(week_start, week_end)
     finished = filed[filed["done_on"].notna()]["kind"].value_counts()
     # An unfilled weekday counts as the ordinary day its card is showing.
     counted = week_records(week_start, saved)
     hours, breaks, overtime = totals(counted)
     owed = expected(counted)
+
+    overtime_help = (f"Overtime, against the {owed:g} h this week owes"
+                     + (f" ({WEEK_HOURS:g} h, less any holiday)."
+                        if owed != WEEK_HOURS else "."))
 
     # The hours on one row, then what was finished on the next.
     rows = ([("Hours worked", f"{hours:.1f} h", f"{overtime:+.1f} h"),
@@ -88,13 +91,11 @@ def _cards(week_start: date, week_end: date, saved: dict) -> None:
                                  (db.MEETING, "Meetings completed"),
                                  (db.PAPER, "Papers read"))])
     for row in rows:
-        for column, card in zip(st.columns(len(row)), row):
-            holder = column.container(key="hours-card") if card[2] else column
-            holder.metric(
-                card[0], card[1], delta=card[2], border=True,
-                help=(f"Overtime, against the {owed:g} h this week owes"
-                      + (f" ({WEEK_HOURS:g} h, less any holiday)."
-                         if owed != WEEK_HOURS else ".")) if card[2] else None)
+        for column, (label, value, delta) in zip(st.columns(len(row)), row):
+            # Only the card with a delta needs the frame that lays it out.
+            holder = column.container(key="hours-card") if delta else column
+            holder.metric(label, value, delta=delta, border=True,
+                          help=overtime_help if delta else None)
     st.html(CARD_CSS)
 
 
@@ -161,10 +162,9 @@ def _chart(week: pd.DataFrame, height: int) -> None:
         .configure_axisY(grid=False))
 
 
-def render(week_start: date, height: int = 410) -> None:
-    """The cards and the plot for one week, read from the database."""
-    week_end = week_start + timedelta(days=6)
-    saved = {row["day"].date(): row
-             for _, row in db.days_in(week_start, week_end).iterrows()}
-    _cards(week_start, week_end, saved)
+def render(week_start: date, saved: dict, filed: pd.DataFrame,
+           height: int = 410) -> None:
+    """The cards and the plot for one week, from what the page has already read
+    of it: the days it holds, and everything filed against them."""
+    _cards(week_start, saved, filed)
     _chart(_week_frame(week_start, saved), height)

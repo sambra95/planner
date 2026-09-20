@@ -5,10 +5,9 @@ from datetime import date
 
 import streamlit as st
 
-import daycard
 import db
 import projectcard
-from palette import NO_PROJECT, chip_css, style_block
+from palette import NO_PROJECT
 
 st.markdown("**Archived projects**")
 
@@ -16,26 +15,9 @@ projects = db.projects()
 retired = projects[projects["archived"] == 1]
 if retired.empty:
     st.caption("None archived.")
-else:
-    # Retiring a project does not hide what it held: the chip opens the same
-    # card it has on the Projects page, with the way back where the archive and
-    # delete buttons are there.
-    mine = projectcard.assigned(db.project_items())
-
-# Stashed by a project's card, which cannot open a dialog from inside one.
-picked = st.session_state.pop("project_item", None)
-
-rules = []
-for project in retired.itertuples():
-    rules.append(chip_css(f"retired:{project.id}", project.colour))
-    if st.button(project.name, key=f"retired:{project.id}", width="stretch"):
-        projectcard.open_project(project, mine, "arch")
-
-if rules:
-    st.html(style_block(rules))
-
-if picked is not None:
-    daycard.open_item(picked, "arch:", [NO_PROJECT] + list(projects["name"]))
+# Retiring a project hides none of what it held: the chip opens the same card
+# as on Projects, with the way back where its archive and delete buttons are.
+projectcard.chips(retired, "retired", [NO_PROJECT] + list(projects["name"]))
 
 st.divider()
 st.markdown("**Backups**")

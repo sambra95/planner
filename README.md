@@ -24,18 +24,18 @@ tab.
 
 - **My Week** - the calendar a week at a time: start and end times, the break
   between them, each day's checklist and a comment. The week it is showing is
-  the heading, and opening it lays the whole year
-  out as a grid of its weeks, each numbered and dated, this one filled in and
-  any week with something recorded in it outlined; an arrow either side steps a
-  week, and the arrows around the year look at another one without leaving the
-  week you are on. A
+  the heading, and opening it lays the whole year out as a grid of its weeks,
+  each numbered and dated, this one filled in and any week with something
+  recorded in it outlined; an arrow either side steps a week, and the arrows
+  around the year look at another one without leaving the week you are on. A
   blank weekday shows an ordinary nine to five and counts as one, so an
-  untouched week reads as square; overtime is measured against 7.4 h × 5, less a
-  day for each weekday marked as holiday. Click anything on a day to open and
+  untouched week reads as square; overtime is measured against 7.4 h × 5, less
+  a day for each weekday marked as holiday. Click anything on a day to open and
   edit it, or take it off the day without deleting it. Underneath sits the
-  week's review: the hours worked and the break against what the week owes, what
-  was finished, the shape of each day, and four questions to answer, with a reminder on the last working day that is not a holiday. It
-  follows whichever week the cards above are showing.
+  week's review: the hours worked and the break against what the week owes,
+  what was finished, the shape of each day, and four questions to answer, with
+  a reminder on the last working day that is not a holiday. It follows
+  whichever week the cards above are showing.
 - **Tasks** - everything still to do, newest first. Each task is one card with
   its project, day, optional notes and milestones. Milestones are
   independent: ticking them all does not finish the task, and only the task's

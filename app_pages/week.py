@@ -9,7 +9,7 @@ import streamlit as st
 import daycard
 import db
 import weeksummary
-from palette import lightened
+from palette import css_class, lightened
 from worktime import monday_of
 
 today = date.today()
@@ -24,39 +24,38 @@ WEEKS_ACROSS = 7
 #: button about 40 of them wide, and these are worth hitting without aiming.
 STEP_WIDTH = 200
 
-#: The picker's label is the page's heading now, so it is set at the size the
-#: figures under it print their numbers at, rather than an expander's own body
-#: text. Streamlit has no variable for it to borrow, so the size is written out.
+#: The picker's label doubles as the page's heading, so it is sized like the
+#: figures below it. Streamlit has no variable for that size to borrow.
 LABEL_SIZE = "2.25rem"
 
-#: The header and the two steps beside it, at one height so the row reads as a
-#: single control. Both are set from here rather than left to their own padding,
-#: which is the only way the three are sure to match.
+#: The header and its two steps at one height, so the row reads as one control:
+#: their own padding does not match.
 ROW_HEIGHT = "3.5rem"
 
-#: What a plain button is filled with, so the title beside two of them reads as
-#: part of the same row rather than as a panel behind it.
+#: What Streamlit fills a plain button with, for the title between two of them.
 BUTTON_FACE = lightened(st.get_option("theme.backgroundColor"))
 
+PICKER = css_class("week-picker")
 PICKER_CSS = f"""<style>
-.st-key-week-picker summary {{
+.{PICKER} summary {{
     font-size: {LABEL_SIZE};
     align-items: center;
     height: {ROW_HEIGHT};
     background-color: {BUTTON_FACE};
 }}
-/* The header is a row of the chevron and then a wrapper holding the label,
-   and that wrapper is the full width - so the text is centred inside it,
-   rather than by centring the row, which has nothing to spare. */
-.st-key-week-picker summary > span > div {{ justify-content: center; }}
-/* Nothing but the week itself in the header, so the chevron goes too. It sits
-   in a plain wrapping span, known by the material icon inside it. A browser
-   without :has() drops the rule and simply keeps the chevron. */
-.st-key-week-picker summary > span > span:has([data-testid="stIconMaterial"]) {{
+/* The wrapper holding the label is the full width, so the text is centred
+   inside it: centring the row itself has nothing to spare. */
+.{PICKER} summary > span > div {{ justify-content: center; }}
+/* Nothing but the week in the header, so the chevron goes. It is the icon in
+   there with no test id of its own. Without :has() the rule is dropped and the
+   chevron simply stays. */
+.{PICKER} summary > span > span:has([data-testid="stIconMaterial"]) {{
     display: none;
 }}
-.st-key-week-picker summary p {{ font-size: {LABEL_SIZE}; }}
-.st-key-week_back button, .st-key-week_on button {{ height: {ROW_HEIGHT}; }}
+.{PICKER} summary p {{ font-size: {LABEL_SIZE}; }}
+.{css_class("week_back")} button, .{css_class("week_on")} button {{
+    height: {ROW_HEIGHT};
+}}
 </style>"""
 
 
@@ -73,7 +72,7 @@ def _shift(weeks: int) -> None:
 
 def _step_year(by: int) -> None:
     """Look at another year's weeks without leaving the week being shown."""
-    st.session_state.grid_year = st.session_state.grid_year + by
+    st.session_state.grid_year += by
 
 
 def _year_grid(year: int, recorded: set, viewed: date) -> None:
@@ -83,17 +82,16 @@ def _year_grid(year: int, recorded: set, viewed: date) -> None:
     The 28th of December is always in the last week of its year, which is how a
     53-week year is told from a 52-week one."""
     last = date(year, 12, 28).isocalendar()[1]
+    this_week = monday_of(today)
     for first in range(1, last + 1, WEEKS_ACROSS):
         row = st.columns(WEEKS_ACROSS)
-        for column, number in zip(row, range(first, first + WEEKS_ACROSS)):
-            if number > last:
-                break
+        for column, number in zip(row, range(first, last + 1)):
             monday = date.fromisocalendar(year, number, 1)
             face = f"{number} · {monday:%d %b}"
             column.button(
                 f"**{face}**" if monday == viewed else face,
                 key=f"week_pick:{monday}", width="stretch",
-                type=("primary" if monday == monday_of(today)
+                type=("primary" if monday == this_week
                       else "secondary" if monday in recorded else "tertiary"),
                 on_click=_shown, args=(monday,))
 
@@ -112,19 +110,17 @@ records = {row["day"].date(): row for _, row in days.iterrows()}
 tasks = db.items_in(week_start, week_end)
 milestones = db.milestones_in(week_start, week_end)
 
-# Which weeks have anything in them, for the grid to mark. The grid is the way
-# around the year, and follows the week being shown until the year buttons send
-# it elsewhere.
+# Which weeks have anything in them, for the grid to mark. The grid follows the
+# week being shown until the year buttons send it elsewhere.
 recorded = set(db.recorded_weeks())
 # Its ISO year, not its calendar one: the week beginning 29 December 2025 is
 # the first week of 2026, and 2026's grid is the one holding it.
 year = st.session_state.setdefault("grid_year", week_start.isocalendar()[0])
 
-# The picker is its own title: the week it opens on is the week being shown. An
-# expander is known by its label, so one that says which week it is closes each
-# time that changes - which is when a week has just been picked. The steps to
-# either side are a week at a time; the grid inside is for anywhere else, and
-# they align to the top so they stay by the label when the grid is open.
+# The picker is its own title. An expander is known by its label, so one naming
+# the week closes whenever that changes - which is just after one is picked. The
+# steps either side go a week at a time, and sit at the top so they stay beside
+# the label once the grid is open.
 st.html(PICKER_CSS)
 picker = st.container(horizontal=True, vertical_alignment="top",
                       key="week-picker")
@@ -147,12 +143,12 @@ daycard.render_week(week_start, records, tasks, milestones, prefix="week:")
 
 st.divider()
 st.markdown("**Review**")
-# The week in figures beside what you made of it, and it follows whichever week
-# the cards above are showing rather than always being this one.
+# The week in figures beside what you made of it, for whichever week the cards
+# above are showing.
 summary, writing = st.columns(2, gap="large")
 
 with summary:
-    weeksummary.render(week_start)
+    weeksummary.render(week_start, records, tasks)
 
 with writing:
     answers = db.review(week_start)

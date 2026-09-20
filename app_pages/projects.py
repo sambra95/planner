@@ -7,7 +7,7 @@ import streamlit as st
 import daycard
 import db
 import projectcard
-from palette import NO_PROJECT, chip_css, style_block
+from palette import NO_PROJECT
 
 
 @st.dialog("Add project", width="large")
@@ -42,25 +42,6 @@ if st.button("Add project", icon=":material/add:", width="stretch"):
 
 projects = db.projects()
 live = projects[projects["archived"] == 0]
-mine = projectcard.assigned(db.project_items())
-names = [NO_PROJECT] + list(live["name"])
-
-# Stashed by a project's card: one dialog cannot open another, so the item a
-# card's table picked is opened here instead.
-picked = st.session_state.pop("project_item", None)
-
 if live.empty:
     st.caption("No projects yet.")
-
-rules = []
-for project in live.itertuples():
-    rules.append(chip_css(f"project:{project.id}", project.colour))
-    if st.button(project.name, key=f"project:{project.id}", width="stretch"):
-        projectcard.open_project(project, mine, "p")
-
-# One style block for every chip, each in its project's colour.
-if rules:
-    st.html(style_block(rules))
-
-if picked is not None:
-    daycard.open_item(picked, "proj:", names)
+projectcard.chips(live, "project", [NO_PROJECT] + list(live["name"]))

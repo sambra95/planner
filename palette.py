@@ -129,9 +129,7 @@ def next_colour(used) -> str:
             return colour
     step = len(taken)
     while True:
-        red, green, blue = colorsys.hls_to_rgb((step * _GOLDEN) % 1.0, 0.58, 0.62)
-        colour = "#%02X%02X%02X" % (round(red * 255), round(green * 255),
-                                    round(blue * 255))
+        colour = _hex(colorsys.hls_to_rgb((step * _GOLDEN) % 1.0, 0.58, 0.62))
         if colour not in taken:
             return colour
         step += 1
@@ -143,9 +141,19 @@ def css_class(key: str) -> str:
     return "st-key-" + re.sub(r"[^A-Za-z0-9_-]", "-", key)
 
 
+def _channels(colour: str) -> tuple[int, int, int]:
+    """A hex colour as its three channels."""
+    return tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _hex(channels) -> str:
+    """Three channels, each 0 to 1, back as hex."""
+    return "#" + "".join(f"{round(channel * 255):02X}" for channel in channels)
+
+
 def _rgba(colour: str, alpha: float) -> str:
     """Hex as a comma-separated rgba(), the form Streamlit's Markdown accepts."""
-    red, green, blue = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    red, green, blue = _channels(colour)
     return f"rgba({red},{green},{blue},{alpha})"
 
 
@@ -164,16 +172,6 @@ def wash(colour) -> str:
     return _rgba(as_hex(colour), WASH_ALPHA)
 
 
-def card_css(key: str, colour) -> str:
-    """CSS washing one `st.container(key=...)` card in its project colour.
-    The border is hidden rather than dropped, so the card keeps its box and
-    radius and reads as a chip, the way a meeting does in the calendar. The
-    card alone: the wash is translucent, so repeating it on children would
-    stack the alpha."""
-    wash = _rgba(as_hex(colour), WASH_ALPHA)
-    return (f'.{css_class(key)} {{ background-color: {wash} !important; '
-            f'border-color: transparent !important; }}')
-
 def strike(text: str, done: bool) -> str:
     """Text struck through once it is finished."""
     return f"~~{text}~~" if done else text
@@ -181,19 +179,17 @@ def strike(text: str, done: bool) -> str:
 
 def lightened(colour: str, amount: float = 0.05) -> str:
     """`colour` with its lightness raised. Streamlit fills a plain button with
-    the page background lightened this far, and has no variable to borrow, so
-    anything meant to match one works it out the same way."""
-    red, green, blue = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    hue, light, saturation = colorsys.rgb_to_hls(red, green, blue)
-    channels = colorsys.hls_to_rgb(hue, min(1.0, light + amount), saturation)
-    return "#" + "".join(f"{round(channel * 255):02X}" for channel in channels)
+    the page background lightened this far, and offers no variable to borrow."""
+    hue, light, saturation = colorsys.rgb_to_hls(
+        *(channel / 255 for channel in _channels(colour)))
+    return _hex(colorsys.hls_to_rgb(hue, min(1.0, light + amount), saturation))
 
 
 def chip_css(key: str, colour) -> str:
     """CSS making one `st.button(key=...)` read as a project chip: the project's
     colour on a wash of it, rather than a default grey button. With no project
-    there is no colour to wash it in, so it keeps the page behind it and loses
-    its outline all the same - a chip with no colour, not a button among chips."""
+    there is no colour to wash it in, so it keeps the page behind it and simply
+    loses its outline."""
     if colour is None or pd.isna(colour):
         return f'.{css_class(key)} button {{ border-color: transparent !important; }}'
     tint = as_hex(colour)
