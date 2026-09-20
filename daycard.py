@@ -66,8 +66,8 @@ def _set_project(prefix: str, task_id: int) -> None:
     db.set_task_project(task_id, None if chosen == NO_PROJECT else chosen)
 
 
-def _set_description(prefix: str, task_id: int) -> None:
-    db.set_task_description(task_id, st.session_state[f"{prefix}dabout:{task_id}"])
+def _set_notes(prefix: str, task_id: int) -> None:
+    db.set_task_notes(task_id, st.session_state[f"{prefix}dabout:{task_id}"])
 
 
 def _set_times(prefix: str, task_id: int) -> None:
@@ -177,7 +177,7 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
         st.text_area("Notes", key=f"{prefix}dabout:{item.id}", height=130,
                      value="" if pd.isna(item.description) else item.description,
                      placeholder="Add a note…",
-                     on_change=_set_description, args=(prefix, item.id))
+                     on_change=_set_notes, args=(prefix, item.id))
 
     if item.kind == db.TASK:
         st.markdown("**Milestones**")
@@ -373,7 +373,7 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
     if project != NO_PROJECT:
         db.set_task_project(new_id, project)
     if description.strip():
-        db.set_task_description(new_id, description)
+        db.set_task_notes(new_id, description)
     if kind == db.MEETING and any(times):
         db.set_meeting_times(new_id, *times)
     if kind == db.PAPER and tags.strip():

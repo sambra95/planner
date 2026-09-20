@@ -435,10 +435,11 @@ def rename_task(task_id: int, title: str) -> None:
                id=task_id, title=title)
 
 
-def set_task_description(task_id: int, description: str) -> None:
-    """Set or clear a task's description. Blank means none."""
-    _write("UPDATE tasks SET description = :description WHERE id = :id",
-           id=task_id, description=description.strip() or None)
+def set_task_notes(task_id: int, notes: str) -> None:
+    """Set or clear a task's notes, which live in the column that held its
+    description. Bulleted like every other written box. Blank means none."""
+    _write("UPDATE tasks SET description = :notes WHERE id = :id",
+           id=task_id, notes=as_bullets(notes) or None)
 
 
 def set_task_day(task_id: int, day: date | None) -> None:
