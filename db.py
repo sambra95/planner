@@ -683,10 +683,11 @@ def rename_project(project_id: int, name: str) -> None:
                id=project_id, name=name)
 
 
-def set_project_description(project_id: int, description: str) -> None:
-    """Set or clear a project's description. Blank means none."""
-    _write("UPDATE projects SET description = :description WHERE id = :id",
-           id=project_id, description=description.strip() or None)
+def set_project_notes(project_id: int, notes: str) -> None:
+    """Set or clear a project's notes, which live in the column that held its
+    description. Bulleted like every other written box. Blank means none."""
+    _write("UPDATE projects SET description = :notes WHERE id = :id",
+           id=project_id, notes=as_bullets(notes) or None)
 
 
 def delete_project(project_id: int) -> None:

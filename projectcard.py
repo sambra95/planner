@@ -1,5 +1,5 @@
-"""One project's card: what it is, what it amounts to, and a searchable table of
-everything assigned to it. A project is a chip like a task or a meeting, and
+"""One project's card: what it is, what has been noted about it, what it amounts
+to, and a searchable table of everything assigned to it. A project is a chip like a task or a meeting, and
 this is what opens when one is clicked - on Projects, and in the archive, where
 retiring a project hides none of what it held.
 """
@@ -26,8 +26,8 @@ def _rename(prefix: str, project_id: int) -> None:
     db.rename_project(project_id, st.session_state[f"{prefix}name:{project_id}"])
 
 
-def _set_description(prefix: str, project_id: int) -> None:
-    db.set_project_description(
+def _set_notes(prefix: str, project_id: int) -> None:
+    db.set_project_notes(
         project_id, st.session_state[f"{prefix}about:{project_id}"])
 
 
@@ -154,10 +154,12 @@ def _open(project, prefix: str) -> None:
                           format="DD/MM/YYYY", on_change=_set_dates,
                           args=(prefix, project.id))
 
-    st.text_input("Description", key=f"{prefix}about:{project.id}",
-                  value="" if pd.isna(project.description) else project.description,
-                  placeholder="Add a description…",
-                  on_change=_set_description, args=(prefix, project.id))
+    # A text area, as a task's notes are: that is what the bullets attach
+    # themselves to, and what there is to say about a project is rarely one line.
+    st.text_area("Notes", key=f"{prefix}about:{project.id}", height=130,
+                 value="" if pd.isna(project.description) else project.description,
+                 placeholder="Add a note…",
+                 on_change=_set_notes, args=(prefix, project.id))
 
     items = db.project_items(project.id)
     _tally(items)

@@ -1,4 +1,4 @@
-"""Projects: a name, an optional description, dates and a colour of its own.
+"""Projects: a name, whatever is worth noting, dates and a colour of its own.
 One chip each, as a task or a meeting is, opening the project's own card.
 Archived ones live in the Archive."""
 
@@ -15,8 +15,8 @@ def _add_project() -> None:
     """A new project, laid out like the card it will become but empty. Its
     colour is not asked for: the next unused one is handed out."""
     name = st.text_input("Project", key="new_pname", placeholder="The project…")
-    about = st.text_input("Description", key="new_pabout",
-                          placeholder="Add a description…")
+    about = st.text_area("Notes", key="new_pabout", height=130,
+                         placeholder="Add a note…")
     span = st.columns(2)
     start = span[0].date_input("From", value=None, key="new_pstart",
                                format="DD/MM/YYYY")
@@ -30,7 +30,7 @@ def _add_project() -> None:
         return
     new_id = db.add_project(name)
     if about.strip():
-        db.set_project_description(new_id, about)
+        db.set_project_notes(new_id, about)
     if start or end:
         db.set_project_dates(new_id, start, end)
     st.rerun(scope="app")
