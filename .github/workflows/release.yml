@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Build
-        run: ./scripts/make_dist.sh --version "${TAG#v}" --xz
+        run: ./macos_install/make_dist.sh --version "${TAG#v}" --xz
 
       - name: Publish
         env:
@@ -40,3 +40,28 @@ jobs:
             || echo "Release exists; replacing its archives."
           gh release upload "$TAG" \
             dist/Planner-macos-arm64.dmg dist/Planner-macos-arm64.tar.xz --clobber
+
+  windows:
+    # After the Mac job, so the release it uploads to is already there.
+    needs: macos
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build
+        shell: pwsh
+        run: ./windows_install/make_dist.ps1 -Version ($env:TAG -replace '^v')
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:TAG" dist/Planner-windows-x64.zip --clobber

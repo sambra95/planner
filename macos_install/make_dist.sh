@@ -9,7 +9,7 @@
 # The bundle is built for the architecture of the machine running this script.
 #
 # Usage:
-#   ./scripts/make_dist.sh [--version 1.0.0] [--no-dmg] [--zip] [--xz]
+#   ./macos_install/make_dist.sh [--version 1.0.0] [--no-dmg] [--zip] [--xz]
 
 set -euo pipefail
 

@@ -1,8 +1,9 @@
-"""Entry point for the packaged Planner bundle.
+"""Entry point for the packaged Planner bundle, on macOS and on Windows.
 
 No console here, so everything is mirrored to a log file. Streamlit is started
 on a free port, the browser pointed at it, and the whole thing quits once the
-last tab closes. Run by Planner.app; a checkout runs streamlit directly.
+last tab closes. Run by Planner.app or Planner.cmd; a checkout runs streamlit
+directly.
 """
 
 from __future__ import annotations
@@ -19,15 +20,20 @@ from pathlib import Path
 
 RESOURCES = Path(__file__).resolve().parent
 START_TIMEOUT = 120
+WINDOWS = sys.platform == "win32"
+
+#: Keeps a console window from flashing up behind the app's own, since the
+#: launcher starts it without one. Nothing to do anywhere else.
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
 
 #: Grace after the last tab closes; 0 keeps it running until quit by hand.
 IDLE_TIMEOUT = 30
 IDLE_POLL = 3
 
 
-def _support_dir() -> Path:
-    """Somewhere writable for the database, never inside the bundle."""
-    root = Path.home() / "Library" / "Application Support" / "Planner"
+def _writable(root: Path) -> Path:
+    """`root`, made if it is not there yet, or somewhere temporary if it cannot
+    be: the app is no use unable to write at all."""
     try:
         root.mkdir(parents=True, exist_ok=True)
         return root
@@ -35,13 +41,20 @@ def _support_dir() -> Path:
         return Path(tempfile.gettempdir())
 
 
+def _support_dir() -> Path:
+    """Somewhere writable for the database, never inside the bundle. Each
+    platform's own spot for what an app keeps for itself."""
+    if WINDOWS:
+        home = Path(os.environ.get("LOCALAPPDATA") or Path.home())
+        return _writable(home / "Planner")
+    return _writable(Path.home() / "Library" / "Application Support" / "Planner")
+
+
 def _log_file() -> Path:
-    root = Path.home() / "Library" / "Logs" / "Planner"
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        return root / "planner.log"
-    except OSError:
-        return Path(tempfile.gettempdir()) / "planner.log"
+    """Beside the database on Windows; where a Mac keeps logs on a Mac."""
+    root = (_support_dir() if WINDOWS
+            else _writable(Path.home() / "Library" / "Logs" / "Planner"))
+    return root / "planner.log"
 
 
 class _Tee:
@@ -83,15 +96,21 @@ def _serving(port: int) -> bool:
 def _open_tabs(port: int) -> int | None:
     """Browser tabs holding the app open, or None if it cannot be told. The
     websocket closes with the tab, so this counts tabs, not activity."""
+    command = (["netstat", "-n", "-p", "TCP"] if WINDOWS
+               else ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:ESTABLISHED"])
     try:
-        found = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:ESTABLISHED"],
-            capture_output=True, text=True, timeout=10)
-        # lsof exits 1 with no output when nothing matches: a real zero.
-        lines = [line for line in found.stdout.splitlines() if line.strip()]
-        return max(0, len(lines) - 1)  # drop the header
+        found = subprocess.run(command, capture_output=True, text=True,
+                               timeout=10, **NO_WINDOW).stdout
     except Exception:
         return None
+    if WINDOWS:
+        # netstat lists every connection, and a loopback one twice - once from
+        # each end. Only the rows arriving at the server's port are ours.
+        rows = (line.split() for line in found.splitlines())
+        return sum(1 for row in rows if len(row) > 3 and row[3] == "ESTABLISHED"
+                   and row[1].endswith(f":{port}"))
+    # lsof exits 1 with no output when nothing matches: a real zero.
+    return max(0, len([line for line in found.splitlines() if line.strip()]) - 1)
 
 
 def _idle_timeout() -> float:
@@ -134,8 +153,10 @@ def _quit(signum, frame):
 
 
 def main() -> int:
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, _quit)
+    # Windows has no SIGHUP, and nothing else to put in its place.
+    for name in ("SIGINT", "SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _quit)
 
     log = open(_log_file(), "a", encoding="utf-8")
     sys.stdout = _Tee(sys.stdout, log)
@@ -152,7 +173,7 @@ def main() -> int:
          str(RESOURCES / "streamlit_app.py"),
          "--server.port", str(port), "--server.address", "127.0.0.1",
          "--server.headless", "true", "--browser.gatherUsageStats", "false"],
-        cwd=RESOURCES, env=env)
+        cwd=RESOURCES, env=env, **NO_WINDOW)
     try:
         deadline = time.time() + START_TIMEOUT
         while time.time() < deadline and not _serving(port):

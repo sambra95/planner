@@ -1,17 +1,24 @@
 # Planner
 
-A personal task list, work diary and weekly review. Runs on your Mac, keeps
-everything in one SQLite file, and talks to nothing.
+A personal task list, work diary and weekly review. Runs on your Mac or PC,
+keeps everything in one SQLite file, and talks to nothing.
 
 [![Download Planner for macOS](https://img.shields.io/github/v/release/sambra95/planner?display_name=tag&style=for-the-badge&logo=apple&logoColor=white&label=Download%20for%20macOS&color=0b7285)](https://github.com/sambra95/planner/releases/latest/download/Planner-macos-arm64.dmg)
+[![Download Planner for Windows](https://img.shields.io/github/v/release/sambra95/planner?display_name=tag&style=for-the-badge&logo=windows&logoColor=white&label=Download%20for%20Windows&color=0b7285)](https://github.com/sambra95/planner/releases/latest/download/Planner-windows-x64.zip)
 
-Open it. A window appears with **Planner** beside the Applications folder:
-drag one onto the other. That is the whole install.
+**macOS** - open the disk image. A window appears with **Planner** beside the
+Applications folder: drag one onto the other. The first launch needs
+right-click → Open, because the bundle is ad-hoc signed rather than notarised.
+Apple silicon only.
 
-The app carries its own Python, so nothing else needs installing. It opens in
-your browser and quits about thirty seconds after you close the last tab. The
-first launch needs right-click → Open, because the bundle is ad-hoc signed
-rather than notarised. Apple silicon only.
+**Windows** - unzip the folder wherever you want it and double-click
+**Planner.cmd** inside. Right-click it → *Show more options* → *Send to* →
+*Desktop* for a shortcut. SmartScreen may ask once: *More info* → *Run anyway*.
+64-bit only.
+
+Either way the app carries its own Python, so nothing else needs installing. It
+opens in your browser and quits about thirty seconds after you close the last
+tab.
 
 ## The tabs
 
@@ -47,9 +54,11 @@ it was finished, and unticking it puts it back.
 
 One SQLite file, and only on this machine:
 
-- packaged app - `~/Library/Application Support/Planner/planner.db`, so
-  replacing the app leaves your planner alone
+- packaged app, macOS - `~/Library/Application Support/Planner/planner.db`
+- packaged app, Windows - `%LOCALAPPDATA%\Planner\planner.db`
 - checkout - `planner.db` beside the code
 
-There is no copy anywhere else, so include it in whatever backs up your home
-directory. Logs are in `~/Library/Logs/Planner`.
+Either way it sits outside the app, so replacing the app leaves your planner
+alone. There is no copy anywhere else, so include it in whatever backs up your
+home directory. The log sits beside the database on Windows, and in
+`~/Library/Logs/Planner` on a Mac.
