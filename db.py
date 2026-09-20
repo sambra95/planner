@@ -555,13 +555,26 @@ def set_task_tags(task_id: int, tags: str) -> str:
     return cleaned
 
 
+#: What a bullet is marked with: a point at the top level, a dash below it.
+POINT, DASH = "\u2022 ", "- "
+
+
 def as_bullets(text: str) -> str:
     """Every line as a bullet. The page starts the next one when Enter is
     pressed, but the text is tidied here too, so a line typed without one - or
-    pasted in - still comes back as a bullet."""
-    lines = [line.strip() for line in (text or "").splitlines()]
-    return "\n".join(line if line.startswith("- ") else f"- {line}"
-                     for line in lines if line.strip("- ").strip())
+    pasted in - still comes back as a bullet. The spaces a line opens with are
+    kept: they are what makes it a sub-bullet of the one above, and what
+    decides which mark it carries."""
+    kept = []
+    for line in (text or "").splitlines():
+        body = line.strip()
+        if not body.strip("\u2022- ").strip():
+            continue
+        indent = line[:len(line) - len(line.lstrip(" "))]
+        if body.startswith((POINT, DASH)):
+            body = body[2:]
+        kept.append(indent + (DASH if indent else POINT) + body)
+    return "\n".join(kept)
 
 
 def set_task_note(task_id: int, field: str, text: str) -> None:

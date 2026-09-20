@@ -219,9 +219,10 @@ def style_block(rules: list[str]) -> str:
     return "<style>" + "\n".join(rules) + "</style>" if rules else ""
 
 
-#: Enter starts the next bullet in every text area. Streamlit cannot see a
-#: keypress inside one, so the page does it, writing the value the way React
-#: listens for. db.as_bullets tidies the same text on save.
+#: Enter starts the next bullet in every text area and Tab makes one a
+#: sub-bullet: a point at the top level, a dash under it. Streamlit cannot see
+#: a keypress inside one, so the page does it, writing the value the way React
+#: listens for. db.as_bullets tidies the same text on save, marks and all.
 BULLET_JS = """<script>
 (() => {
   // st.html runs again on every rerun, so without this the listeners stack up
@@ -230,6 +231,20 @@ BULLET_JS = """<script>
   window.plannerBullets = true;
 
   const ours = (box) => box.tagName === "TEXTAREA";
+  // What one level of indent is worth, and how to find the line a caret is on.
+  const STEP = "  ";
+  // A top-level bullet is a point; everything under it is a dash. Both are two
+  // characters wide, so a line keeps its width when it changes level.
+  const MARK = /^(?:\u2022 |- )/;
+  const mark = (indent) => indent ? "- " : "\u2022 ";
+  const lineStart = (value, at) =>
+      at === 0 ? 0 : value.lastIndexOf("\\n", at - 1) + 1;
+  const lineEnd = (value, at) => {
+    const stop = value.indexOf("\\n", at);
+    return stop === -1 ? value.length : stop;
+  };
+  const indentOf = (value, at) =>
+      value.slice(lineStart(value, at)).match(/^ */)[0];
   const write = (box, value, caret) => {
     const setter = Object.getOwnPropertyDescriptor(
         window.HTMLTextAreaElement.prototype, "value").set;
@@ -245,14 +260,54 @@ BULLET_JS = """<script>
         || event.metaKey || event.ctrlKey || event.altKey) return;
     event.preventDefault();
     const at = box.selectionStart;
-    const added = "\\n- ";
+    // The next bullet starts at the depth of the one it follows, so it is
+    // marked the way that depth is marked.
+    const ahead = indentOf(box.value, at);
+    const added = "\\n" + ahead + mark(ahead);
     write(box, box.value.slice(0, at) + added + box.value.slice(box.selectionEnd),
           at + added.length);
   }, true);
+  const indent = (event) => {
+    const box = event.target;
+    // Tab takes a bullet one level in, Shift+Tab one level back out. Inside a
+    // text area that is worth more than moving the focus on, so the key is
+    // stopped dead: the default would tab away, and Streamlit's own handlers
+    // would too if the event reached them.
+    if (!ours(box) || event.key !== "Tab"
+        || event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== "keydown") return;   // keyup only has to be swallowed
+    const at = box.selectionStart;
+    const start = lineStart(box.value, at);
+    const line = box.value.slice(start, lineEnd(box.value, at));
+    const was = line.match(/^ */)[0];
+    if (event.shiftKey && was.length < STEP.length) return;   // already out
+    const now = event.shiftKey ? was.slice(STEP.length) : was + STEP;
+    const body = line.slice(was.length).replace(MARK, "");
+    const line2 = now + mark(now) + body;
+    const caret = Math.min(
+        Math.max(at + line2.length - line.length, start + now.length + 2),
+        start + line2.length);
+    write(box, box.value.slice(0, start) + line2
+               + box.value.slice(start + line.length), caret);
+    // Writing the value re-renders the box, which can drop the focus on the
+    // way past. Take it back once that has settled.
+    requestAnimationFrame(() => {
+      if (document.activeElement !== box) box.focus();
+      box.setSelectionRange(caret, caret);
+    });
+  };
+  document.addEventListener("keydown", indent, true);
+  document.addEventListener("keyup", indent, true);
   document.addEventListener("input", (event) => {
     const box = event.target;
-    if (!ours(box) || box.value === "" || box.value.startsWith("- ")) return;
-    write(box, "- " + box.value, box.selectionStart + 2);
+    // An indented first line is already a bullet, so match past the spaces.
+    if (!ours(box) || box.value === ""
+        || MARK.test(box.value.replace(/^ */, ""))) return;
+    const ind = box.value.match(/^ */)[0];
+    write(box, ind + mark(ind) + box.value.slice(ind.length),
+          box.selectionStart + 2);
   }, true);
 })();
 </script>"""
