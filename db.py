@@ -443,15 +443,22 @@ def set_task_notes(task_id: int, notes: str) -> None:
 
 
 def set_task_day(task_id: int, day: date | None) -> None:
-    """Move an item to `day`. A finished one is filed under the day it was
-    done - that is what `on_day` reads and what its editor shows - so that day
-    moves with it; setting `day` alone would be written and then never seen.
-    Clearing the day leaves a finished one on the day it was finished, since
-    nothing here un-finishes work."""
+    """Move an item to `day`, carrying its `done_on`: filing is by
+    COALESCE(done_on, day), so leaving that behind would pin the item to its old
+    day or hide the move entirely.
+
+    A day gone by counts as done, the way a past meeting counts as held. That is
+    also what keeps the move: `close_past_days` takes an unfinished task off a
+    day that has passed, so a backdated one would be swept straight back onto
+    the list. Clearing the day leaves a finished one where it was finished,
+    since nothing here un-finishes work."""
     _write("UPDATE tasks SET day = :day, done_on = "
-           "CASE WHEN done_on IS NULL OR :day IS NULL THEN done_on ELSE :day END "
+           "CASE WHEN :day IS NULL THEN done_on "
+           "WHEN done_on IS NOT NULL OR :day < :today THEN :day "
+           "ELSE NULL END "
            "WHERE id = :id",
-           id=task_id, day=day.isoformat() if day else None)
+           id=task_id, day=day.isoformat() if day else None,
+           today=date.today().isoformat())
 
 
 def set_task_project(task_id: int, project: str | None) -> None:
