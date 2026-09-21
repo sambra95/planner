@@ -415,7 +415,9 @@ def render_day(day: date, record, tasks: pd.DataFrame,
     opened = None
     with st.container(border=True):
         header = st.columns([3, 2], vertical_alignment="center")
-        header[0].markdown(f"**{day:%a %-d %b}**"
+        # %-d is glibc-only and blows up on Windows; take the day number
+        # straight off the date so the format string stays portable.
+        header[0].markdown(f"**{day:%a} {day.day} {day:%b}**"
                            + (" :blue-badge[today]" if day == date.today() else ""))
         away = header[1].checkbox("Holiday", value=is_holiday(record),
                                   key=f"{prefix}holiday:{day}",
