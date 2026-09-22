@@ -53,7 +53,8 @@ _ADDED_COLUMNS = {
     "tasks": {"project_id": "INTEGER", "description": "TEXT",
               "kind": "TEXT NOT NULL DEFAULT 'task'", "notes": "TEXT",
               "goals": "TEXT", "actions": "TEXT",
-              "start_time": "TEXT", "end_time": "TEXT", "tags": "TEXT"},
+              "start_time": "TEXT", "end_time": "TEXT", "tags": "TEXT",
+              "link": "TEXT"},
     "days": {"holiday": "INTEGER NOT NULL DEFAULT 0"},
     "milestones": {"done_on": "DATE"},
     "projects": {"archived": "INTEGER NOT NULL DEFAULT 0",
@@ -74,7 +75,8 @@ _MILESTONE_COUNTS = (
 #: list, so a task, meeting or paper arrives in the same shape wherever it is
 #: read and the editor can open any of them.
 _ITEM_COLUMNS = ("SELECT t.id, t.title, t.day, t.done_on, t.kind, t.description, "
-                 "t.goals, t.notes, t.actions, t.tags, t.start_time, t.end_time, "
+                 "t.goals, t.notes, t.actions, t.tags, t.link, "
+                 "t.start_time, t.end_time, "
                  "COALESCE(t.done_on, t.day) AS on_day, "
                  "p.name AS project, p.colour AS colour, " + _MILESTONE_COUNTS)
 
@@ -110,7 +112,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     actions     TEXT,
     start_time  TEXT,
     end_time    TEXT,
-    tags        TEXT
+    tags        TEXT,
+    link        TEXT
 );
 CREATE TABLE IF NOT EXISTS milestones (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -567,6 +570,19 @@ def set_task_tags(task_id: int, tags: str) -> str:
         word.strip() for word in tags.split(",") if word.strip()))
     _write("UPDATE tasks SET tags = :tags WHERE id = :id",
            tags=cleaned or None, id=task_id)
+    return cleaned
+
+
+def set_task_link(task_id: int, link: str) -> str:
+    """Where a paper can be read. An address pasted without a scheme gets one,
+    or the link would be read as a page of this app. Blank clears it; the
+    tidied address comes back so the box it came from can show it."""
+    cleaned = link.strip()
+    scheme, _, rest = cleaned.partition("://")
+    if cleaned and not (rest and scheme.isalpha()):
+        cleaned = "https://" + cleaned
+    _write("UPDATE tasks SET link = :link WHERE id = :id",
+           link=cleaned or None, id=task_id)
     return cleaned
 
 

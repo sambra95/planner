@@ -81,6 +81,11 @@ def _set_tags(prefix: str, task_id: int) -> None:
     st.session_state[key] = db.set_task_tags(task_id, st.session_state[key])
 
 
+def _set_link(prefix: str, task_id: int) -> None:
+    key = f"{prefix}dlink:{task_id}"
+    st.session_state[key] = db.set_task_link(task_id, st.session_state[key])
+
+
 def _set_note(prefix: str, task_id: int, field: str) -> None:
     db.set_task_note(task_id, field,
                      st.session_state[f"{prefix}d{field}:{task_id}"])
@@ -215,11 +220,25 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
                          placeholder=f"{label}…", on_change=_set_note,
                          args=(prefix, item.id, field))
     else:
-        st.text_input("Tags", key=f"{prefix}dtags:{item.id}",
-                      value="" if pd.isna(getattr(item, "tags", None))
-                      else item.tags,
-                      placeholder="Keywords, separated by commas…",
-                      on_change=_set_tags, args=(prefix, item.id))
+        tagged, linked, opens = st.columns([3, 3, 1.4],
+                                           vertical_alignment="bottom")
+        tagged.text_input("Tags", key=f"{prefix}dtags:{item.id}",
+                          value="" if pd.isna(getattr(item, "tags", None))
+                          else item.tags,
+                          placeholder="Keywords, separated by commas…",
+                          on_change=_set_tags, args=(prefix, item.id))
+        link_key = f"{prefix}dlink:{item.id}"
+        linked.text_input("Link", key=link_key,
+                          value="" if pd.isna(getattr(item, "link", None))
+                          else item.link, placeholder="https://…",
+                          help="Where to read it. Paste a new address over it "
+                               "to change it.",
+                          on_change=_set_link, args=(prefix, item.id))
+        # Always there, so the row keeps its shape, but dead until there is
+        # somewhere to go.
+        url = st.session_state.get(link_key, "")
+        opens.link_button("View paper", url or "#", width="stretch",
+                          icon=":material/open_in_new:", disabled=not url)
         st.text_area("Notes", key=f"{prefix}dnotes:{item.id}", height=180,
                      value="" if pd.isna(item.notes) else item.notes,
                      on_change=_set_note, args=(prefix, item.id, "notes"))
@@ -339,8 +358,11 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
             notes[field] = st.text_area(label, height=130, key=key + field,
                                         placeholder=f"{label}…")
     elif kind == db.PAPER:
-        tags = st.text_input("Tags", key=key + "tags",
-                             placeholder="Keywords, separated by commas…")
+        tagged, linked = st.columns(2)
+        tags = tagged.text_input("Tags", key=key + "tags",
+                                 placeholder="Keywords, separated by commas…")
+        link = linked.text_input("Link", key=key + "link",
+                                 placeholder="https://…")
         notes["notes"] = st.text_area("Notes", height=180, key=key + "notes")
     elif kind == db.TASK:
         st.markdown("**Milestones**")
@@ -378,6 +400,8 @@ def _new(kind: str, names: list[str], day: date | None) -> None:
         db.set_meeting_times(new_id, *times)
     if kind == db.PAPER and tags.strip():
         db.set_task_tags(new_id, tags)
+    if kind == db.PAPER and link.strip():
+        db.set_task_link(new_id, link)
     for field, written in notes.items():
         if written.strip():
             db.set_task_note(new_id, field, written)
