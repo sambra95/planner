@@ -8,8 +8,10 @@ import pandas as pd
 import streamlit as st
 
 import db
-from worktime import (WEEK_DAYS, WEEK_HOURS, clock, day_hours, expected, field,
-                      is_holiday, totals, week_records, with_defaults)
+from palette import HOLIDAY_COLOUR
+from worktime import (STANDARD_DAY, WEEK_DAYS, WEEK_HOURS, clock, day_hours,
+                      expected, field, is_holiday, is_weekday, totals,
+                      week_records, with_defaults)
 
 #: A quiet grey for the labels and a lighter one for the guides.
 LABEL, GREY = "#6F6757", "#B4AC9C"
@@ -29,6 +31,10 @@ BREAK = _toward_page(BAR, 0.55)
 
 #: An ordinary day, marked so a bar reads against it at a glance.
 ORDINARY = (9, 17)
+
+#: A holiday's band sits behind the bars, so it is fainter than the same colour
+#: on the calendar, where nothing is drawn over it.
+HOLIDAY_BAND = 0.18
 
 #: The bars' rounded corners. The break sits at the top of one, so it carries
 #: the same radius there and squares off where it meets the hours below.
@@ -59,7 +65,8 @@ def _week_frame(week_start: date, saved: dict) -> pd.DataFrame:
         # A label, not a date: a temporal axis spreads one week over its hours.
         # An empty weekend still gets a row, so the plot shows the whole week.
         entry = {"Day": f"{day:%a %d}", "Start": None, "End": None,
-                 "Worked": None, "Break": 0.0}
+                 "Worked": None, "Break": 0.0,
+                 "Holiday": record is not None and is_holiday(record)}
         if record is not None and not is_holiday(record):
             start, end = (clock(field(record, "start_time")),
                           clock(field(record, "end_time")))
@@ -83,19 +90,28 @@ def _cards(week_start: date, saved: dict, filed: pd.DataFrame) -> None:
                      + (f" ({WEEK_HOURS:g} h, less any holiday)."
                         if owed != WEEK_HOURS else "."))
 
+    # Only a weekday holiday is counted, because only that one takes hours off
+    # what the week owes - which is the figure it sits beside.
+    off = sum(1 for record in counted
+              if is_holiday(record) and is_weekday(record))
+    holiday_help = (f"Weekdays marked holiday. Each takes {STANDARD_DAY:g} h off "
+                    "what the week owes, so it costs no overtime.")
+
     # The hours on one row, then what was finished on the next.
     rows = ([("Hours worked", f"{hours:.1f} h", f"{overtime:+.1f} h"),
-             ("Break", f"{breaks:.1f} h", None)],
+             ("Break", f"{breaks:.1f} h", None),
+             ("Holiday", f"{off} d", None)],
             [(label, int(finished.get(kind, 0)), None)
              for kind, label in ((db.TASK, "Tasks completed"),
                                  (db.MEETING, "Meetings completed"),
                                  (db.PAPER, "Papers read"))])
+    notes = {"Hours worked": overtime_help, "Holiday": holiday_help}
     for row in rows:
         for column, (label, value, delta) in zip(st.columns(len(row)), row):
             # Only the card with a delta needs the frame that lays it out.
             holder = column.container(key="hours-card") if delta else column
             holder.metric(label, value, delta=delta, border=True,
-                          help=overtime_help if delta else None)
+                          help=notes.get(label))
     st.html(CARD_CSS)
 
 
@@ -151,8 +167,18 @@ def _chart(week: pd.DataFrame, height: int) -> None:
         dy=-9, fontSize=10, font="Inter", color=LABEL).encode(
         x=day, y="End:Q", text="label:N")
 
+    # A day off has no bar to show, so it is the column itself that says so:
+    # banded the width of the day and named at the top, where no bar reaches.
+    off = week[week["Holiday"]]
+    band = alt.Chart(off).mark_rect(
+        color=HOLIDAY_COLOUR, opacity=HOLIDAY_BAND).encode(x=day)
+    band_labels = alt.Chart(off).mark_text(
+        baseline="top", dy=2, fontSize=10, font="Inter", color=LABEL).encode(
+        x=day, y=alt.value(0), text=alt.value("Holiday"))
+
     st.altair_chart(
-        (guides + guide_labels + span + rest + worked).properties(
+        (band + guides + guide_labels + span + rest + worked
+         + band_labels).properties(
             width="container", height=height,
             padding={"left": 44, "top": 5, "right": 5, "bottom": 5})
         .configure_view(strokeWidth=0)

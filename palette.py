@@ -46,6 +46,14 @@ ARCHIVED_COLOUR = "#AEA185"
 #: What a project selector shows for no project.
 NO_PROJECT = "-"
 
+#: What a day off is washed in. Deliberately outside PALETTE, so a holiday
+#: cannot be taken for a project on a calendar painted by project.
+HOLIDAY_COLOUR = "#8C9A5B"
+
+#: A holiday colours a whole calendar cell rather than a chip, so it sits a
+#: little stronger than a project's wash or it vanishes into the page.
+HOLIDAY_ALPHA = 0.22
+
 #: How much colour washes into a card, a chip or a badge.
 WASH_ALPHA = 0.16
 
@@ -212,6 +220,15 @@ def select_css(key: str, colour) -> str:
             f'.{css_class(key)} [data-testid="stSelectbox"] > div > div {{ '
             f'background-color: {_rgba(tint, WASH_ALPHA)} !important; '
             f'color: {tint} !important; border-color: transparent !important; }}')
+
+
+def holiday_css(key: str) -> str:
+    """CSS marking one keyed container as a day off: the holiday colour washed
+    over the whole cell, with its border picked out in the same colour so the
+    day still reads as bordered rather than merely tinted."""
+    return (f'.{css_class(key)} {{ '
+            f'background-color: {_rgba(HOLIDAY_COLOUR, HOLIDAY_ALPHA)} !important; '
+            f'border-color: {_rgba(HOLIDAY_COLOUR, 0.55)} !important; }}')
 
 
 def style_block(rules: list[str]) -> str:

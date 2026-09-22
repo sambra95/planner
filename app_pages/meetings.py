@@ -9,8 +9,8 @@ import streamlit as st
 
 import daycard
 import db
-from palette import NO_PROJECT, chip_css, style_block, wash
-from worktime import when
+from palette import NO_PROJECT, chip_css, holiday_css, style_block, wash
+from worktime import is_holiday, when
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -63,6 +63,12 @@ grid = calendar.Calendar(firstweekday=0).monthdatescalendar(
 meetings = db.meetings_in(grid[0][0], grid[-1][-1])
 by_day = {day: frame for day, frame in meetings.groupby(meetings["on_day"].dt.date)}
 
+# The same days My Week marks off, read over the whole grid so the neighbouring
+# months are marked too rather than changing colour as they scroll into view.
+holidays = {record["day"].date()
+            for _, record in db.days_in(grid[0][0], grid[-1][-1]).iterrows()
+            if is_holiday(record)}
+
 today = date.today()
 rules = []
 opened = None
@@ -76,11 +82,19 @@ for week in grid:
         # A day with anything on it says how many, so a busy day reads at a
         # glance and the ones past the fold are not left unannounced.
         tally = f" :gray-badge[{len(on_day)}]" if len(on_day) else ""
-        with column, st.container(border=True, height=CELL_HEIGHT):
+        # Only a day off is keyed: the rest need no rule, and keying every cell
+        # would put a class on the whole grid to style seven of them.
+        off = f"cal-holiday-{day}" if day in holidays else None
+        if off:
+            rules.append(holiday_css(off))
+        with column, st.container(border=True, height=CELL_HEIGHT, key=off):
+            # Named as well as washed: the colour alone would be the only thing
+            # telling a day off from a quiet one.
+            mark = " :green-badge[Holiday]" if off else ""
             if day == today:
-                st.markdown(f"**{day.day}** :blue-badge[today]{tally}")
+                st.markdown(f"**{day.day}** :blue-badge[today]{tally}{mark}")
             elif day.month == month_start.month:
-                st.markdown(f"**{day.day}**{tally}")
+                st.markdown(f"**{day.day}**{tally}{mark}")
             else:
                 st.caption(f"{day.day}")
             for meeting in on_day.itertuples():
