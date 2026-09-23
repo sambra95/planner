@@ -30,8 +30,12 @@ def field(record, name: str):
 
 
 def clock(value) -> time | None:
-    """A stored 'HH:MM' string as a time."""
-    return datetime.strptime(value, "%H:%M").time() if value else None
+    """A stored 'HH:MM' string as a time. Only a string is one: a frame whose
+    column holds times for some rows and nothing for others hands the empty
+    ones over as NaN, which is a float and truthy, so testing the value alone
+    would take it for a time and fail on it."""
+    return (datetime.strptime(value, "%H:%M").time()
+            if isinstance(value, str) and value else None)
 
 
 def span(start: time | None, end: time | None) -> float | None:
