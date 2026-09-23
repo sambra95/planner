@@ -149,6 +149,48 @@ def _dismiss() -> None:
     st.session_state["dismissed_item"] = st.session_state.get("open_item")
 
 
+#: What finishing is called, and what the list it comes back to is, per kind.
+#: A paper is read, not completed.
+_CARD_WORDS = {db.TASK: ("Completed", "task list"),
+               db.PAPER: ("Read", "reading list")}
+
+
+def _card_actions(item, prefix: str, day: date) -> None:
+    """The foot of a task or paper card: finish it, put it back on its list, or
+    delete it, three across the card. Each is greyed out when it has nothing to
+    do, so the row keeps its shape whatever state the item is in. Finishing
+    files it under `day`, as ticking it on that card would. A meeting has its
+    own, since calling one off is not the same as deleting it."""
+    done = not pd.isna(item.done_on)
+    finished, listing = _CARD_WORDS[item.kind]
+    row = st.columns(3)
+
+    if row[0].button(finished, icon=":material/check_circle:", width="stretch",
+                     key=f"{prefix}dfinish:{item.id}", disabled=done,
+                     help=None if done else f"Mark it {finished.lower()}."):
+        db.set_task_done(item.id, day)
+        st.rerun(scope="app")
+
+    # Finished, or set for a day: either way it is off the list, and this is
+    # what puts it back.
+    if row[1].button(f"Back on the {listing}", icon=":material/undo:",
+                     width="stretch", key=f"{prefix}dback:{item.id}",
+                     disabled=not (done or not pd.isna(item.day))):
+        if done:
+            db.set_task_done(item.id, None)
+        else:
+            _clear_day(item.id)
+        st.rerun(scope="app")
+
+    with row[2].popover("Delete", icon=":material/delete:", width="stretch"):
+        st.markdown(f"**Delete this {item.kind}?**")
+        st.caption("It goes, notes and all. This cannot be undone.")
+        if st.button("Yes, delete it", type="primary", width="stretch",
+                     key=f"{prefix}ddrop:{item.id}"):
+            db.delete_task(item.id)
+            st.rerun(scope="app")
+
+
 def _editor(item, prefix: str, names: list[str], day: date) -> None:
     """Everything about one item, and everything you can change about it. `day`
     is the one a milestone ticked here is filed under: the card it was opened
@@ -254,20 +296,8 @@ def _editor(item, prefix: str, names: list[str], day: date) -> None:
                          type="primary", key=f"{prefix}ddrop:{item.id}"):
                 db.delete_task(item.id)
                 st.rerun(scope="app")
-    elif pd.isna(item.done_on) and not pd.isna(item.day):
-        # Only worth offering when it is on a day to be taken off.
-        if st.button("Take off this day", icon=":material/event_busy:",
-                     key=f"{prefix}dclear:{item.id}"):
-            _clear_day(item.id)
-            st.rerun(scope="app")
-    elif not pd.isna(item.done_on):
-        # Finished, but not really: this puts it back where it came from, the
-        # day it was filed under along with it.
-        back = ("reading list" if item.kind == db.PAPER else "task list")
-        if st.button(f"Put back on the {back}", icon=":material/undo:",
-                     key=f"{prefix}dundo:{item.id}"):
-            db.set_task_done(item.id, None)
-            st.rerun(scope="app")
+    else:
+        _card_actions(item, prefix, day)
 
 
 def _milestone_row(milestone, prefix: str, day: date, rules: list[str]) -> bool:
