@@ -279,13 +279,14 @@ def _milestone_row(milestone, prefix: str, day: date, rules: list[str]) -> bool:
     chip = f"{prefix}daychip:{milestone.id}"
     rules.append(chip_css(chip, milestone.colour))
 
-    line = st.columns([1, 7], vertical_alignment="center")
-    line[0].checkbox("Done", value=True, key=key, label_visibility="collapsed",
-                     on_change=_toggle_milestone, args=(key, milestone.id, day))
+    line = st.columns([7, 1], vertical_alignment="center")
     # Only the milestone is named, so the task it belongs to is the hint.
-    return line[1].button(strike(milestone.title, True), key=chip,
-                          width="stretch",
-                          help=f"Milestone of {milestone.task}")
+    opened = line[0].button(strike(milestone.title, True), key=chip,
+                            width="stretch",
+                            help=f"Milestone of {milestone.task}")
+    line[1].checkbox("Done", value=True, key=key, label_visibility="collapsed",
+                     on_change=_toggle_milestone, args=(key, milestone.id, day))
+    return opened
 
 
 #: What each kind is called where a new one is being made.
@@ -487,15 +488,15 @@ def render_day(day: date, record, tasks: pd.DataFrame,
             tally = f" ({int(own['done'].sum())}/{len(own)})" if len(own) else ""
             rules.append(chip_css(f"{prefix}open:{item.id}", item.colour))
 
-            line = st.columns([1, 7], vertical_alignment="center")
-            line[0].checkbox("Done", value=done, key=f"{prefix}task:{item.id}",
-                             label_visibility="collapsed",
-                             on_change=_toggle_task, args=(prefix, item.id, day))
+            line = st.columns([7, 1], vertical_alignment="center")
             clock_face = when(item._asdict()) if item.kind == db.MEETING else ""
             label_text = f"{clock_face} {strike(item.title, done)}".strip()
-            if line[1].button(label_text + tally,
+            if line[0].button(label_text + tally,
                               key=f"{prefix}open:{item.id}", width="stretch"):
                 opened = item, day
+            line[1].checkbox("Done", value=done, key=f"{prefix}task:{item.id}",
+                             label_visibility="collapsed",
+                             on_change=_toggle_task, args=(prefix, item.id, day))
 
         if tasks.empty:
             st.caption("No tasks assigned.")

@@ -83,8 +83,13 @@ INPUT_CSS = f"""<style>
 #: checklist. The tick inside is a share of the box and grows with it.
 CHECKBOX_SIZE = "1.4rem"
 
+#: What a holiday box keeps: it sits beside its word in a day card's header,
+#: where there is no room to spare, and a bigger box crowds the word out.
+HOLIDAY_CHECKBOX_SIZE = "1rem"
+
 #: Streamlit gives the box no name of its own; it is the div in front of the
-#: widget's label, which is there whether the label shows or not.
+#: widget's label, which is there whether the label shows or not. The holiday
+#: box is picked out by the key its day card gives it.
 CHECKBOX_CSS = f"""<style>
 [data-testid="stCheckbox"] div:has(~ [data-testid="stWidgetLabel"]) {{
     width: {CHECKBOX_SIZE};
@@ -93,6 +98,11 @@ CHECKBOX_CSS = f"""<style>
        Centring it in the row instead holds for any size. */
     margin-top: 0;
     align-self: center;
+}}
+[class*="-holiday-"] [data-testid="stCheckbox"]
+                     div:has(~ [data-testid="stWidgetLabel"]) {{
+    width: {HOLIDAY_CHECKBOX_SIZE};
+    height: {HOLIDAY_CHECKBOX_SIZE};
 }}
 </style>"""
 
