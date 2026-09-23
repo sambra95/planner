@@ -12,9 +12,12 @@ import db
 from palette import NO_PROJECT, chip_css, strike, style_block
 
 
+today = date.today()
+
+
 def _mark_read(paper_id: int) -> None:
     """Read here records it as read today; a day's checklist uses that day."""
-    db.set_task_done(paper_id, date.today() if
+    db.set_task_done(paper_id, today if
                      st.session_state[f"paper_read:{paper_id}"] else None)
 
 
@@ -34,14 +37,19 @@ for paper in papers.itertuples():
     tags = "" if pd.isna(paper.tags) else f" · {paper.tags}"
     rules.append(chip_css(f"papers:open:{paper.id}", paper.colour))
 
-    line = st.columns([0.4, 9, 0.5], vertical_alignment="center")
-    line[0].checkbox("Read", value=False, key=f"paper_read:{paper.id}",
-                     label_visibility="collapsed", help="Mark as read",
-                     on_change=_mark_read, args=(paper.id,))
-    if line[1].button(f"{strike(paper.title, False)}{day}{tags}",
+    line = st.columns([8, 0.4, 1.3, 0.5], vertical_alignment="center")
+    if line[0].button(f"{strike(paper.title, False)}{day}{tags}",
                       key=f"papers:open:{paper.id}", width="stretch"):
         opened = paper
-    line[2].button("", icon=":material/delete:", key=f"paper_drop:{paper.id}",
+    line[1].checkbox("Read", value=False, key=f"paper_read:{paper.id}",
+                     label_visibility="collapsed", help="Mark as read",
+                     on_change=_mark_read, args=(paper.id,))
+    # Onto today's card, still to read. Greyed out where it already sits there.
+    line[2].button("Read today", icon=":material/today:", width="stretch",
+                   key=f"paper_today:{paper.id}",
+                   disabled=paper.day == pd.Timestamp(today),
+                   on_click=db.set_task_day, args=(paper.id, today))
+    line[3].button("", icon=":material/delete:", key=f"paper_drop:{paper.id}",
                    on_click=db.delete_task, args=(paper.id,))
 
 st.divider()

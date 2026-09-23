@@ -6,7 +6,8 @@ from pathlib import Path
 import streamlit as st
 
 import db
-from palette import BULLET_JS, INPUT_CSS, NAV_CSS, SECTION_CSS
+from palette import (BULLET_JS, CHECKBOX_CSS, INPUT_CSS, NAV_CSS,
+                     SECTION_CSS)
 
 #: Beside this file, not the working directory: the packaged app starts elsewhere.
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -30,6 +31,7 @@ db.close_past_days()
 
 st.html(SECTION_CSS)
 st.html(INPUT_CSS)
+st.html(CHECKBOX_CSS)
 st.html(NAV_CSS)
 st.html(BULLET_JS, unsafe_allow_javascript=True)
 

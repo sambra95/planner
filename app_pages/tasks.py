@@ -37,14 +37,18 @@ for task in tasks.itertuples():
     day = "" if pd.isna(task.day) else f" · {task.day:%a %d %b}"
     rules.append(chip_css(f"tasks:open:{task.id}", task.colour))
 
-    line = st.columns([0.4, 9, 0.5], vertical_alignment="center")
-    line[0].checkbox("Done", value=False, key=f"done:{task.id}",
-                     label_visibility="collapsed", on_change=_toggle_task,
-                     args=(task.id,))
-    if line[1].button(f"{strike(task.title, False)}{tally}{day}",
+    line = st.columns([8, 0.4, 1.3, 0.5], vertical_alignment="center")
+    if line[0].button(f"{strike(task.title, False)}{tally}{day}",
                       key=f"tasks:open:{task.id}", width="stretch"):
         opened = task
-    line[2].button("", icon=":material/delete:", key=f"drop:{task.id}",
+    line[1].checkbox("Done", value=False, key=f"done:{task.id}",
+                     label_visibility="collapsed", on_change=_toggle_task,
+                     args=(task.id,))
+    # Onto today's card, still open. Greyed out where it already sits there.
+    line[2].button("Do today", icon=":material/today:", width="stretch",
+                   key=f"today:{task.id}", disabled=task.day == pd.Timestamp(today),
+                   on_click=db.set_task_day, args=(task.id, today))
+    line[3].button("", icon=":material/delete:", key=f"drop:{task.id}",
                    on_click=db.delete_task, args=(task.id,))
 
 # One style block for every chip, each in its project's colour.

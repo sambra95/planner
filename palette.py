@@ -79,6 +79,23 @@ INPUT_CSS = f"""<style>
 [data-testid="stSelectbox"] > div > div {{ background-color: {INPUT_FILL}; }}
 </style>"""
 
+#: How big a tick box is. Streamlit's own is 1rem, small to aim at down a long
+#: checklist. The tick inside is a share of the box and grows with it.
+CHECKBOX_SIZE = "1.4rem"
+
+#: Streamlit gives the box no name of its own; it is the div in front of the
+#: widget's label, which is there whether the label shows or not.
+CHECKBOX_CSS = f"""<style>
+[data-testid="stCheckbox"] div:has(~ [data-testid="stWidgetLabel"]) {{
+    width: {CHECKBOX_SIZE};
+    height: {CHECKBOX_SIZE};
+    /* The margin Streamlit centres it with is worked out from the old size.
+       Centring it in the row instead holds for any size. */
+    margin-top: 0;
+    align-self: center;
+}}
+</style>"""
+
 #: Mirrors `borderColor` in .streamlit/config.toml, which CSS cannot read.
 BORDER_COLOUR = "#C8BFAA"
 
